@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+import os
+import re
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class FileOperationPreview:
+    """실제 파일 작업 전에 사용자에게 보여줄 정보입니다."""
+
+    action: str
+    source_label: str
+    destination: Path
+    will_overwrite: bool
+
+    @property
+    def message(self) -> str:
+        overwrite_text = "기존 파일을 덮어씁니다." if self.will_overwrite else "새 파일로 저장합니다."
+        return f"{self.source_label}\n-> {self.destination}\n\n{overwrite_text}"
+
+
+class FileOperationService:
+    """파일 저장/이름 변경 같은 위험 작업의 공통 규칙을 담당합니다."""
+
+    _invalid_filename_chars = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+    def build_write_preview(
+        self,
+        source_label: str,
+        destination_path: str | Path,
+        action: str = "save",
+    ) -> FileOperationPreview:
+        destination = Path(destination_path)
+        return FileOperationPreview(
+            action=action,
+            source_label=source_label,
+            destination=destination,
+            will_overwrite=destination.exists(),
+        )
+
+    def write_bytes(self, destination_path: str | Path, data: bytes, overwrite: bool = False) -> Path:
+        destination = Path(destination_path)
+        if destination.exists() and not overwrite:
+            raise FileExistsError(f"이미 같은 이름의 파일이 있습니다: {destination}")
+        if destination.exists() and destination.is_dir():
+            raise IsADirectoryError(f"폴더에는 저장할 수 없습니다: {destination}")
+
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        fd, temp_name = tempfile.mkstemp(prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent)
+        temp_path = Path(temp_name)
+        try:
+            with os.fdopen(fd, "wb") as temp_file:
+                temp_file.write(data)
+            os.replace(temp_path, destination)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
+
+        return destination
+
+    def sanitize_filename(self, filename: str, fallback: str = "attachment") -> str:
+        cleaned = self._invalid_filename_chars.sub("_", filename).strip(" .")
+        return cleaned or fallback
