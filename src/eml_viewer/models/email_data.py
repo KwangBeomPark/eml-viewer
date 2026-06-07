@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from eml_viewer.models.attachment_data import AttachmentInfo
+from eml_viewer.models.attachment_data import AttachmentInfo, InlineResource
 
 
 @dataclass(frozen=True)
@@ -17,6 +17,7 @@ class ParsedEmail:
     plain_body: str
     html_body: str
     attachments: list[AttachmentInfo] = field(default_factory=list)
+    inline_resources: list[InlineResource] = field(default_factory=list)
     source_path: Path | None = None
 
     @property
