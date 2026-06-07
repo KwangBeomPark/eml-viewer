@@ -1,11 +1,23 @@
-# Inno Setup packaging placeholder
+# Inno Setup packaging
 
-MVP는 PyInstaller `onedir` 실행 파일만 만듭니다.
+이 폴더는 Windows 설치 파일을 만들기 위한 Inno Setup 설정을 담습니다.
 
-향후 설치 프로그램이 필요해지면 이 폴더에 Inno Setup 스크립트를 추가합니다.
+## 필요 도구
 
-예정 흐름:
+- Inno Setup 6
+- Python 개발 환경
+- PyInstaller
 
-1. PyInstaller로 `dist\EmlViewer` 생성
-2. Inno Setup으로 시작 메뉴, 바탕화면 바로가기, 제거 프로그램 생성
-3. 업데이트 확인 기능과 버전 정보를 연결
+## 빌드
+
+```powershell
+.\scripts\build_installer.ps1
+```
+
+결과 파일:
+
+```text
+installer\EmlViewerSetup-0.1.0.exe
+```
+
+설치 파일은 `.eml` 더블클릭 연결을 선택 항목으로 제공합니다.
