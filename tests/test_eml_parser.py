@@ -72,6 +72,90 @@ class EmlParserTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             EmlParser().parse_file("missing-file.eml")
 
+    def test_inline_image_is_not_shown_as_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "outlook_like.eml"
+            message = EmailMessage()
+            message["Subject"] = "Outlook HTML"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content("plain body", charset="utf-8")
+            message.add_alternative(
+                '<html><body><p>HTML body</p><img src="cid:image001@example"></body></html>',
+                subtype="html",
+            )
+            html_part = message.get_payload()[1]
+            html_part.add_related(
+                b"fake-png",
+                maintype="image",
+                subtype="png",
+                cid="<image001@example>",
+                disposition="inline",
+                filename="image001.png",
+            )
+            message.add_attachment(
+                b"real attachment",
+                maintype="application",
+                subtype="octet-stream",
+                filename="report.txt",
+            )
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(len(parsed.inline_resources), 1)
+            self.assertEqual(parsed.inline_resources[0].content_id, "image001@example")
+            self.assertEqual(len(parsed.attachments), 1)
+            self.assertEqual(parsed.attachments[0].filename, "report.txt")
+
+    def test_parse_korean_subject_and_attachment_filename(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "korean.eml"
+            message = EmailMessage()
+            message["Subject"] = "한글 제목"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content("본문입니다.", charset="utf-8")
+            message.add_attachment(
+                "첨부 내용".encode("utf-8"),
+                maintype="text",
+                subtype="plain",
+                filename="한글첨부.txt",
+            )
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(parsed.subject, "한글 제목")
+            self.assertEqual(parsed.attachments[0].filename, "한글첨부.txt")
+
+    def test_choose_longest_non_empty_body_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "multiple_plain.eml"
+            path.write_bytes(
+                (
+                    "MIME-Version: 1.0\n"
+                    "Subject: Multiple bodies\n"
+                    "From: sender@example.com\n"
+                    "To: receiver@example.com\n"
+                    "Content-Type: multipart/mixed; boundary=\"b\"\n"
+                    "\n"
+                    "--b\n"
+                    "Content-Type: text/plain; charset=\"utf-8\"\n"
+                    "\n"
+                    "short\n"
+                    "--b\n"
+                    "Content-Type: text/plain; charset=\"utf-8\"\n"
+                    "\n"
+                    "this is the longer real body\n"
+                    "--b--\n"
+                ).encode("utf-8")
+            )
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(parsed.plain_body.strip(), "this is the longer real body")
+
 
 if __name__ == "__main__":
     unittest.main()
