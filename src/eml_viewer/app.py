@@ -5,6 +5,8 @@ import sys
 import traceback
 from pathlib import Path
 
+from eml_viewer import __version__
+
 
 def _show_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
     if issubclass(exc_type, KeyboardInterrupt):
@@ -56,10 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     from eml_viewer.services.eml_parser import EmlParser
     from eml_viewer.services.file_operation_service import FileOperationService
     from eml_viewer.services.settings_service import SettingsService
+    from eml_viewer.services.update_service import UpdateService
 
     app = QApplication(argv)
     app.setApplicationName("EML Viewer")
     app.setOrganizationName("Local")
+    app.setApplicationVersion(__version__)
 
     parser = EmlParser()
     file_operation_service = FileOperationService()
@@ -68,6 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         attachment_service=AttachmentService(parser, file_operation_service),
         settings_service=SettingsService(),
         file_operation_service=file_operation_service,
+        update_service=UpdateService(),
     )
     window.show()
 
