@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -27,6 +28,7 @@ from eml_viewer.services.eml_parser import EmlParser
 from eml_viewer.services.error_service import ErrorService
 from eml_viewer.services.file_operation_service import FileOperationService
 from eml_viewer.services.settings_service import SettingsService
+from eml_viewer.services.update_service import UpdateCheckError, UpdateService
 
 
 class MainWindow(QMainWindow):
@@ -38,6 +40,7 @@ class MainWindow(QMainWindow):
         attachment_service: AttachmentService,
         settings_service: SettingsService,
         file_operation_service: FileOperationService,
+        update_service: UpdateService | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -45,6 +48,7 @@ class MainWindow(QMainWindow):
         self._attachment_service = attachment_service
         self._settings_service = settings_service
         self._file_operation_service = file_operation_service
+        self._update_service = update_service or UpdateService()
         self._current_email: ParsedEmail | None = None
 
         self._subject_edit = self._readonly_line_edit()
@@ -75,6 +79,12 @@ class MainWindow(QMainWindow):
         file_menu.addAction(open_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
+
+        update_action = QAction("업데이트 확인", self)
+        update_action.triggered.connect(self._check_for_updates)
+
+        help_menu = self.menuBar().addMenu("도움말")
+        help_menu.addAction(update_action)
 
         toolbar = self.addToolBar("기본")
         toolbar.setMovable(False)
@@ -196,3 +206,38 @@ class MainWindow(QMainWindow):
 
     def _show_error(self, title: str, error: Exception) -> None:
         dialogs.show_error(self, title, ErrorService.to_user_message(error))
+
+    def _check_for_updates(self) -> None:
+        self.statusBar().showMessage("업데이트를 확인하는 중입니다.")
+        try:
+            result = self._update_service.check_for_updates()
+        except UpdateCheckError as exc:
+            dialogs.show_error(self, "업데이트 확인 실패", str(exc))
+            self.statusBar().showMessage("업데이트 확인에 실패했습니다.")
+            return
+
+        if not result.update_available:
+            dialogs.show_info(
+                self,
+                "업데이트 확인",
+                f"현재 최신 버전을 사용 중입니다.\n\n현재 버전: {result.current_version}",
+            )
+            self.statusBar().showMessage("현재 최신 버전입니다.")
+            return
+
+        message = (
+            "새 버전이 있습니다.\n\n"
+            f"현재 버전: {result.current_version}\n"
+            f"최신 버전: {result.latest_version}\n\n"
+            "다운로드 페이지를 열까요?"
+        )
+        answer = QMessageBox.question(
+            self,
+            "업데이트 가능",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer == QMessageBox.StandardButton.Yes and result.download_url:
+            QDesktopServices.openUrl(QUrl(result.download_url))
+        self.statusBar().showMessage("업데이트 확인을 완료했습니다.")
