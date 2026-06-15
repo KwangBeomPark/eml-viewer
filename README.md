@@ -1,4 +1,4 @@
-# EML Viewer
+# EML Viewer - on developing
 
 Python과 PySide6로 만드는 Windows용 `.eml` 이메일 뷰어입니다.
 
