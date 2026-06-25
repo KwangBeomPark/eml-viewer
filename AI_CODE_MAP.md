@@ -42,7 +42,8 @@ eml-viewer/
 
 ## 4. 특수 주의사항 및 리스크
 - **최소 변경 원칙**: GUI와 비즈니스 로직(서비스)의 분리 상태를 훼손하지 않아야 합니다. `services` 패키지에서는 `PySide6` 라이브러리를 직접 호출하거나 가져오지 마십시오.
-- **업데이트 재설치 잠금 방지**: 업데이트가 완료된 후 새 인스톨러를 시작할 때 파일 쓰기 거부 에러를 방지하기 위해 `MainWindow`는 `os.startfile(dest_path)` 호출 즉시 `sys.exit(0)`를 통해 스스로를 종료해야 합니다. 또한 인스톨러 스크립트에 `AppMutex=EmlViewerMutex`와 `CloseApplications=yes`를 활성화해 두었으며, 이를 지원하기 위해 `src/eml_viewer/app.py`의 시작 단계에서 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 직접 생성하여 소유권을 가집니다.
+- **업데이트 재설치 잠금 방지**: 업데이트가 완료된 후 새 인스톨러를 시작할 때 파일 쓰기 거부 에러를 방지하기 위해 `MainWindow`는 `os.startfile(dest_path)` 호출 후 `self.close()` → `QApplication.quit()`을 통해 정상 종료 흐름(`closeEvent` 포함)을 거칩니다. 또한 인스톨러 스크립트에 `AppMutex=EmlViewerMutex`와 `CloseApplications=yes`를 활성화해 두었으며, 이를 지원하기 위해 `src/eml_viewer/app.py`의 시작 단계에서 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 직접 생성하여 소유권을 가집니다.
+- **타임아웃 분리**: `UpdateService`는 API 확인용 타임아웃(`timeout_seconds=10`)과 대용량 파일 다운로드용 타임아웃(`download_timeout_seconds=300`)을 분리하여 관리합니다.
 
 ## 5. 변경 이력
 ### 2026-06-25
@@ -57,3 +58,8 @@ eml-viewer/
   - `app.py` 시작 시 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 생성해 인스톨러의 `AppMutex` 프로세스 중단이 정상 작동되도록 지원.
   - `main_window.py` 내 다운로드 완료 콜백(`_on_download_finished`)에 파일의 존재 여부 및 0바이트 초과 크기 검증 로직 추가.
   - `eml_viewer.iss` 스크립트에서 바탕화면 바로가기 단축 아이콘 기본 생성 유무(`Flags: unchecked` 제거)를 기본 체크(`checked`) 상태로 상향 설정.
+- **코드 품질 개선**:
+  - `main_window.py`: 업데이트 후 종료 시 `sys.exit(0)` 대신 `self.close()` → `QApplication.quit()` 사용으로 `closeEvent` 정상 호출 보장 (창 설정 저장 누락 방지).
+  - `update_service.py`: API 확인용 `timeout_seconds`(10초)와 다운로드용 `download_timeout_seconds`(300초) 분리로 대용량 파일 다운로드 시 타임아웃 방지.
+  - `build_installer.ps1`: PowerShell 인코딩 문제를 방지하기 위해 한글 오류 메시지를 영문으로 변경.
+
