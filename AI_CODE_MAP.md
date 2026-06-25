@@ -42,7 +42,7 @@ eml-viewer/
 
 ## 4. 특수 주의사항 및 리스크
 - **최소 변경 원칙**: GUI와 비즈니스 로직(서비스)의 분리 상태를 훼손하지 않아야 합니다. `services` 패키지에서는 `PySide6` 라이브러리를 직접 호출하거나 가져오지 마십시오.
-- **업데이트 재설치 잠금 방지**: 업데이트가 완료된 후 새 인스톨러를 시작할 때 파일 쓰기 거부 에러를 방지하기 위해 `MainWindow`는 `os.startfile(dest_path)` 호출 즉시 `sys.exit(0)`를 통해 스스로를 종료해야 합니다. 또한 인스톨러 스크립트에 `AppMutex=EmlViewerMutex`와 `CloseApplications=yes`를 활성화해 두었습니다.
+- **업데이트 재설치 잠금 방지**: 업데이트가 완료된 후 새 인스톨러를 시작할 때 파일 쓰기 거부 에러를 방지하기 위해 `MainWindow`는 `os.startfile(dest_path)` 호출 즉시 `sys.exit(0)`를 통해 스스로를 종료해야 합니다. 또한 인스톨러 스크립트에 `AppMutex=EmlViewerMutex`와 `CloseApplications=yes`를 활성화해 두었으며, 이를 지원하기 위해 `src/eml_viewer/app.py`의 시작 단계에서 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 직접 생성하여 소유권을 가집니다.
 
 ## 5. 변경 이력
 ### 2026-06-25
@@ -53,3 +53,7 @@ eml-viewer/
   - 다운로드 완료 시 인스톨러를 호출하고 자신은 프로세스를 바로 종료하도록 연동.
   - Inno Setup 스크립트에 `AppMutex` 및 `CloseApplications` 명시하여 실행 중 파일 잠김 및 재설치 차단 방지.
   - 신규 다운로드 및 취소 로직을 검증하기 위한 단위 테스트(`tests/test_update_download.py`) 작성.
+- **프로세스 감지 및 다운로드 유효성 검사 등 방어적 보완 추가**:
+  - `app.py` 시작 시 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 생성해 인스톨러의 `AppMutex` 프로세스 중단이 정상 작동되도록 지원.
+  - `main_window.py` 내 다운로드 완료 콜백(`_on_download_finished`)에 파일의 존재 여부 및 0바이트 초과 크기 검증 로직 추가.
+  - `eml_viewer.iss` 스크립트에서 바탕화면 바로가기 단축 아이콘 기본 생성 유무(`Flags: unchecked` 제거)를 기본 체크(`checked`) 상태로 상향 설정.

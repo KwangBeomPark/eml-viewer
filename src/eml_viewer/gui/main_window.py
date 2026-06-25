@@ -338,6 +338,16 @@ class MainWindow(QMainWindow):
         self._progress_dialog.close()
         self.statusBar().showMessage("다운로드 완료.")
 
+        # 방어적 코드: 다운로드된 파일 존재 여부 및 유효성(크기) 검증
+        import os
+        if not os.path.exists(dest_path) or os.path.getsize(dest_path) == 0:
+            dialogs.show_error(
+                self,
+                "설치 프로그램 검증 실패",
+                "다운로드된 설치 파일이 존재하지 않거나 파일 크기가 0바이트입니다."
+            )
+            return
+
         dialogs.show_info(
             self,
             "업데이트 준비 완료",
@@ -345,7 +355,6 @@ class MainWindow(QMainWindow):
             "확인을 누르면 프로그램을 종료하고 설치를 시작합니다."
         )
 
-        import os
         import sys
         try:
             os.startfile(dest_path)

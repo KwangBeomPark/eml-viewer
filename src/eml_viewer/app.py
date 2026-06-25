@@ -43,6 +43,19 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     sys.excepthook = _show_unhandled_exception
 
+    # Windows 전용 네임드 뮤텍스 생성 (인스톨러에서 실행 중인 프로세스 감지용)
+    mutex_handle = None
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            CreateMutex = ctypes.windll.kernel32.CreateMutexW
+            CreateMutex.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+            CreateMutex.restype = wintypes.HANDLE
+            mutex_handle = CreateMutex(None, False, "EmlViewerMutex")
+        except Exception as exc:
+            logging.warning(f"네임드 뮤텍스 생성 실패: {exc}")
+
     try:
         from PySide6.QtWidgets import QApplication
     except ModuleNotFoundError:
