@@ -16,6 +16,14 @@ class MessageBodyWidget(QWidget):
 
     _cid_pattern = re.compile(r"cid:([^\"'\s>)]+)", re.IGNORECASE)
     _invalid_filename_chars = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+    _reserved_windows_names = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -70,6 +78,7 @@ class MessageBodyWidget(QWidget):
             filename = self._safe_filename(resource.filename or f"inline-{index}{extension}")
             if not Path(filename).suffix and extension:
                 filename = f"{filename}{extension}"
+            filename = f"{index}-{filename}"
             target_path = temp_root / filename
             target_path.write_bytes(resource.payload)
             cid_to_uri[resource.content_id.lower()] = target_path.as_uri()
@@ -82,6 +91,9 @@ class MessageBodyWidget(QWidget):
 
     def _safe_filename(self, filename: str) -> str:
         cleaned = self._invalid_filename_chars.sub("_", filename).strip(" .")
+        if cleaned and Path(cleaned).stem.upper() in self._reserved_windows_names:
+            cleaned_path = Path(cleaned)
+            cleaned = f"{cleaned_path.stem}_{cleaned_path.suffix}" if cleaned_path.suffix else f"{cleaned}_"
         return cleaned or "inline-resource"
 
     def _clear_inline_temp_dir(self) -> None:

@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.py[cod]
+*.egg-info/
 
 build/
 dist/
@@ -12,3 +13,4 @@ installer/
 .ruff_cache/
 
 *.log
+installer_log.txt

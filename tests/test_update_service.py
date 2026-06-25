@@ -66,6 +66,12 @@ class UpdateServiceTest(unittest.TestCase):
         with self.assertRaises(UpdateCheckError):
             service.check_for_updates()
 
+    def test_unexpected_payload_shape_becomes_user_level_error(self) -> None:
+        service = UpdateService(current_version="0.1.0", opener=lambda request, timeout: FakeResponse([]))
+
+        with self.assertRaises(UpdateCheckError):
+            service.check_for_updates()
+
 
 if __name__ == "__main__":
     unittest.main()

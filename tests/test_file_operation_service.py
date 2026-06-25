@@ -33,10 +33,23 @@ class FileOperationServiceTest(unittest.TestCase):
             service.write_bytes(destination, b"new", overwrite=True)
             self.assertEqual(destination.read_bytes(), b"new")
 
+    def test_write_bytes_rejects_directory_before_overwrite_check(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            destination = Path(temp_dir)
+
+            with self.assertRaises(IsADirectoryError):
+                FileOperationService().write_bytes(destination, b"new")
+
     def test_sanitize_filename_replaces_windows_invalid_chars(self) -> None:
         filename = FileOperationService().sanitize_filename('bad:name*?.txt')
 
         self.assertEqual(filename, "bad_name__.txt")
+
+    def test_sanitize_filename_avoids_windows_reserved_names(self) -> None:
+        service = FileOperationService()
+
+        self.assertEqual(service.sanitize_filename("CON"), "CON_")
+        self.assertEqual(service.sanitize_filename("nul.txt"), "nul_.txt")
 
 
 if __name__ == "__main__":

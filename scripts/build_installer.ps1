@@ -5,8 +5,11 @@ $ProjectRoot = Resolve-Path "$PSScriptRoot\.."
 Push-Location $ProjectRoot
 
 try {
-    $Version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
-    python -m PyInstaller --clean --noconfirm "packaging\pyinstaller\eml_viewer.spec"
+    $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+    $Python = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
+
+    $Version = & $Python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+    & $Python -m PyInstaller --clean --noconfirm "packaging\pyinstaller\eml_viewer.spec"
 
     $IsccCandidates = @(
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",

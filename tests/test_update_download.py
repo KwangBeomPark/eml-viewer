@@ -103,6 +103,40 @@ class UpdateDownloadTest(unittest.TestCase):
 
         self.assertFalse(os.path.exists(self.dest_path))
 
+    def test_download_error_preserves_existing_destination(self) -> None:
+        existing_data = b"existing installer"
+        with open(self.dest_path, "wb") as f:
+            f.write(existing_data)
+
+        def fake_opener(request, timeout):
+            raise ValueError("connection error")
+
+        service = UpdateService(opener=fake_opener)
+
+        with self.assertRaises(UpdateDownloadError):
+            service.download_installer(
+                url="https://example.com/setup.exe",
+                dest_path=self.dest_path,
+            )
+
+        self.assertTrue(os.path.exists(self.dest_path))
+        with open(self.dest_path, "rb") as f:
+            self.assertEqual(f.read(), existing_data)
+
+    def test_empty_download_is_rejected(self) -> None:
+        def fake_opener(request, timeout):
+            return FakeResponse(b"")
+
+        service = UpdateService(opener=fake_opener)
+
+        with self.assertRaises(UpdateDownloadError):
+            service.download_installer(
+                url="https://example.com/setup.exe",
+                dest_path=self.dest_path,
+            )
+
+        self.assertFalse(os.path.exists(self.dest_path))
+
 
 if __name__ == "__main__":
     unittest.main()

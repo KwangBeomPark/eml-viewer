@@ -26,6 +26,14 @@ class FileOperationService:
     """파일 저장/이름 변경 같은 위험 작업의 공통 규칙을 담당합니다."""
 
     _invalid_filename_chars = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+    _reserved_windows_names = {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+    }
 
     def build_write_preview(
         self,
@@ -43,10 +51,10 @@ class FileOperationService:
 
     def write_bytes(self, destination_path: str | Path, data: bytes, overwrite: bool = False) -> Path:
         destination = Path(destination_path)
-        if destination.exists() and not overwrite:
-            raise FileExistsError(f"이미 같은 이름의 파일이 있습니다: {destination}")
         if destination.exists() and destination.is_dir():
             raise IsADirectoryError(f"폴더에는 저장할 수 없습니다: {destination}")
+        if destination.exists() and not overwrite:
+            raise FileExistsError(f"이미 같은 이름의 파일이 있습니다: {destination}")
 
         destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -64,4 +72,12 @@ class FileOperationService:
 
     def sanitize_filename(self, filename: str, fallback: str = "attachment") -> str:
         cleaned = self._invalid_filename_chars.sub("_", filename).strip(" .")
-        return cleaned or fallback
+        if not cleaned:
+            return fallback
+
+        stem = Path(cleaned).stem.upper()
+        if stem in self._reserved_windows_names:
+            cleaned_path = Path(cleaned)
+            cleaned = f"{cleaned_path.stem}_{cleaned_path.suffix}" if cleaned_path.suffix else f"{cleaned}_"
+
+        return cleaned

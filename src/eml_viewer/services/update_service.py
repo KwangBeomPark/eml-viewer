@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 
 from eml_viewer import __version__
 
@@ -69,6 +72,9 @@ class UpdateService:
         except Exception as exc:
             raise UpdateCheckError("업데이트 정보를 가져오지 못했습니다. 인터넷 연결을 확인해 주세요.") from exc
 
+        if not isinstance(payload, dict):
+            raise UpdateCheckError("최신 버전 정보를 읽을 수 없습니다.")
+
         latest_version = _normalize_version(str(payload.get("tag_name", "")))
         if not latest_version:
             raise UpdateCheckError("최신 버전 정보를 읽을 수 없습니다.")
@@ -104,23 +110,29 @@ class UpdateService:
         cancel_event=None,
     ) -> None:
         """설치 프로그램을 다운로드합니다."""
-        import os
-        import urllib.request
-
         request = urllib.request.Request(
             url,
             headers={
                 "User-Agent": "EML-Viewer-Updater",
             },
         )
+        destination = Path(dest_path)
+        temp_path: Path | None = None
 
         try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
             with self._opener(request, timeout=self._download_timeout_seconds) as response:
                 total_size = int(response.headers.get("content-length", 0))
                 block_size = 8192
                 downloaded = 0
 
-                with open(dest_path, "wb") as f:
+                fd, temp_name = tempfile.mkstemp(
+                    prefix=f".{destination.name}.",
+                    suffix=".tmp",
+                    dir=destination.parent,
+                )
+                temp_path = Path(temp_name)
+                with os.fdopen(fd, "wb") as f:
                     while True:
                         if cancel_event is not None and cancel_event.is_set():
                             raise OperationCanceled("다운로드가 취소되었습니다.")
@@ -134,13 +146,18 @@ class UpdateService:
 
                         if progress_callback is not None:
                             progress_callback(downloaded, total_size)
+
+                if downloaded == 0:
+                    raise UpdateDownloadError("다운로드된 설치 파일이 비어 있습니다.")
+
+                os.replace(temp_path, destination)
+                temp_path = None
         except Exception as exc:
-            if os.path.exists(dest_path):
-                try:
-                    os.remove(dest_path)
-                except Exception:
-                    pass
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
             if isinstance(exc, OperationCanceled):
+                raise
+            if isinstance(exc, UpdateDownloadError):
                 raise
             raise UpdateDownloadError(f"다운로드 중 오류가 발생했습니다: {exc}") from exc
 
