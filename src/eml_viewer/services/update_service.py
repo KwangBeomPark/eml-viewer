@@ -12,6 +12,14 @@ class UpdateCheckError(Exception):
     """업데이트 정보를 가져올 수 없을 때 사용하는 오류입니다."""
 
 
+class UpdateDownloadError(Exception):
+    """업데이트 설치 파일을 다운로드할 수 없을 때 사용하는 오류입니다."""
+
+
+class OperationCanceled(Exception):
+    """사용자가 작업을 취소했을 때 발생하는 예외입니다."""
+
+
 @dataclass(frozen=True)
 class UpdateCheckResult:
     current_version: str
@@ -85,6 +93,54 @@ class UpdateService:
             if name.startswith("EmlViewerSetup-") and name.lower().endswith(".exe"):
                 return str(asset.get("browser_download_url", "")) or None
         return None
+
+    def download_installer(
+        self,
+        url: str,
+        dest_path: str,
+        progress_callback=None,
+        cancel_event=None,
+    ) -> None:
+        """설치 프로그램을 다운로드합니다."""
+        import os
+        import urllib.request
+
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "EML-Viewer-Updater",
+            },
+        )
+
+        try:
+            with self._opener(request, timeout=self._timeout_seconds) as response:
+                total_size = int(response.headers.get("content-length", 0))
+                block_size = 8192
+                downloaded = 0
+
+                with open(dest_path, "wb") as f:
+                    while True:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise OperationCanceled("다운로드가 취소되었습니다.")
+
+                        buffer = response.read(block_size)
+                        if not buffer:
+                            break
+
+                        f.write(buffer)
+                        downloaded += len(buffer)
+
+                        if progress_callback is not None:
+                            progress_callback(downloaded, total_size)
+        except Exception as exc:
+            if os.path.exists(dest_path):
+                try:
+                    os.remove(dest_path)
+                except Exception:
+                    pass
+            if isinstance(exc, OperationCanceled):
+                raise
+            raise UpdateDownloadError(f"다운로드 중 오류가 발생했습니다: {exc}") from exc
 
 
 def _normalize_version(version: str) -> str:

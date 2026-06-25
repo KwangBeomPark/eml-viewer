@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, QThread, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QSplitter,
     QVBoxLayout,
@@ -29,6 +30,39 @@ from eml_viewer.services.error_service import ErrorService
 from eml_viewer.services.file_operation_service import FileOperationService
 from eml_viewer.services.settings_service import SettingsService
 from eml_viewer.services.update_service import UpdateCheckError, UpdateService
+
+
+class DownloadThread(QThread):
+    progress = Signal(int, int)  # downloaded, total
+    finished = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, service: UpdateService, url: str, dest_path: str) -> None:
+        super().__init__()
+        self._service = service
+        self._url = url
+        self._dest_path = dest_path
+        import threading
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def run(self) -> None:
+        try:
+            self._service.download_installer(
+                url=self._url,
+                dest_path=self._dest_path,
+                progress_callback=self._progress_callback,
+                cancel_event=self._cancel_event,
+            )
+            if not self._cancel_event.is_set():
+                self.finished.emit(self._dest_path)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+    def _progress_callback(self, downloaded: int, total: int) -> None:
+        self.progress.emit(downloaded, total)
 
 
 class MainWindow(QMainWindow):
@@ -50,6 +84,7 @@ class MainWindow(QMainWindow):
         self._file_operation_service = file_operation_service
         self._update_service = update_service or UpdateService()
         self._current_email: ParsedEmail | None = None
+        self._download_thread: DownloadThread | None = None
 
         self._subject_edit = self._readonly_line_edit()
         self._sender_edit = self._readonly_line_edit()
@@ -192,6 +227,9 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event) -> None:
+        if self._download_thread is not None and self._download_thread.isRunning():
+            self._download_thread.cancel()
+            self._download_thread.wait()
         try:
             geometry = self.geometry()
             self._settings_service.save_window_geometry(
@@ -229,7 +267,7 @@ class MainWindow(QMainWindow):
             "새 버전이 있습니다.\n\n"
             f"현재 버전: {result.current_version}\n"
             f"최신 버전: {result.latest_version}\n\n"
-            "다운로드 페이지를 열까요?"
+            "업데이트를 다운로드하고 설치하시겠습니까?"
         )
         answer = QMessageBox.question(
             self,
@@ -239,5 +277,97 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes,
         )
         if answer == QMessageBox.StandardButton.Yes and result.download_url:
-            QDesktopServices.openUrl(QUrl(result.download_url))
-        self.statusBar().showMessage("업데이트 확인을 완료했습니다.")
+            if result.download_url.lower().endswith(".exe"):
+                self._start_update_download(result.download_url)
+            else:
+                QDesktopServices.openUrl(QUrl(result.download_url))
+                self.statusBar().showMessage("업데이트 확인을 완료했습니다.")
+        else:
+            self.statusBar().showMessage("업데이트 확인을 완료했습니다.")
+
+    def _start_update_download(self, url: str) -> None:
+        import os
+        import tempfile
+
+        dest_dir = tempfile.gettempdir()
+        filename = url.split("/")[-1]
+        if not filename.endswith(".exe"):
+            filename = "EmlViewerSetup.exe"
+        dest_path = os.path.join(dest_dir, filename)
+
+        self._progress_dialog = QProgressDialog(
+            "업데이트 설치 파일을 다운로드하는 중입니다...",
+            "취소",
+            0,
+            100,
+            self,
+        )
+        self._progress_dialog.setWindowTitle("업데이트 다운로드")
+        self._progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._progress_dialog.setAutoClose(False)
+        self._progress_dialog.setAutoReset(False)
+        self._progress_dialog.setValue(0)
+
+        self._download_thread = DownloadThread(self._update_service, url, dest_path)
+        self._download_thread.progress.connect(self._on_download_progress)
+        self._download_thread.finished.connect(self._on_download_finished)
+        self._download_thread.failed.connect(self._on_download_failed)
+
+        self._progress_dialog.canceled.connect(self._download_thread.cancel)
+        self._progress_dialog.show()
+
+        self._download_thread.start()
+        self.statusBar().showMessage("업데이트 다운로드 중...")
+
+    def _on_download_progress(self, downloaded: int, total: int) -> None:
+        if total > 0:
+            val = int(downloaded * 100 / total)
+            self._progress_dialog.setValue(val)
+            downloaded_mb = downloaded / (1024 * 1024)
+            total_mb = total / (1024 * 1024)
+            self._progress_dialog.setLabelText(
+                f"다운로드 중... ({downloaded_mb:.2f} MB / {total_mb:.2f} MB)"
+            )
+        else:
+            downloaded_mb = downloaded / (1024 * 1024)
+            self._progress_dialog.setLabelText(
+                f"다운로드 중... ({downloaded_mb:.2f} MB)"
+            )
+
+    def _on_download_finished(self, dest_path: str) -> None:
+        self._progress_dialog.close()
+        self.statusBar().showMessage("다운로드 완료.")
+
+        dialogs.show_info(
+            self,
+            "업데이트 준비 완료",
+            "설치 프로그램 다운로드가 완료되었습니다.\n"
+            "확인을 누르면 프로그램을 종료하고 설치를 시작합니다."
+        )
+
+        import os
+        import sys
+        try:
+            os.startfile(dest_path)
+        except Exception as exc:
+            dialogs.show_error(
+                self,
+                "설치 프로그램 실행 실패",
+                f"설치 프로그램을 실행하지 못했습니다:\n{exc}"
+            )
+            return
+
+        sys.exit(0)
+
+    def _on_download_failed(self, error_msg: str) -> None:
+        self._progress_dialog.close()
+        if "다운로드가 취소되었습니다" in error_msg:
+            self.statusBar().showMessage("업데이트 다운로드가 취소되었습니다.")
+            return
+
+        dialogs.show_error(
+            self,
+            "업데이트 다운로드 실패",
+            f"업데이트 파일을 다운로드하는 중에 오류가 발생했습니다:\n{error_msg}"
+        )
+        self.statusBar().showMessage("업데이트 다운로드 실패.")
