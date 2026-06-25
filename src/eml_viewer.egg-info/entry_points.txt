@@ -1,0 +1,2 @@
+[console_scripts]
+eml-viewer = eml_viewer.app:main

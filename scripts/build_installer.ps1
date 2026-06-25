@@ -27,7 +27,7 @@ try {
         }
     }
     if ($null -eq $Iscc) {
-        throw "Inno Setup 6 ISCC.exe를 찾을 수 없습니다. Inno Setup 6을 설치한 뒤 다시 실행해 주세요."
+        throw "Could not find Inno Setup 6 ISCC.exe. Please install Inno Setup 6 and run again."
     }
 
     New-Item -ItemType Directory -Force -Path "installer" | Out-Null

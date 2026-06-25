@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
             "확인을 누르면 프로그램을 종료하고 설치를 시작합니다."
         )
 
-        import sys
+        from PySide6.QtWidgets import QApplication
         try:
             os.startfile(dest_path)
         except Exception as exc:
@@ -366,7 +366,10 @@ class MainWindow(QMainWindow):
             )
             return
 
-        sys.exit(0)
+        self.close()
+        app = QApplication.instance()
+        if app is not None:
+            app.quit()
 
     def _on_download_failed(self, error_msg: str) -> None:
         self._progress_dialog.close()

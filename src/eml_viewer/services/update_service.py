@@ -40,11 +40,13 @@ class UpdateService:
         repository: str = "KwangBeomPark/eml-viewer",
         current_version: str = __version__,
         timeout_seconds: int = 10,
+        download_timeout_seconds: int = 300,
         opener=None,
     ) -> None:
         self._repository = repository
         self._current_version = current_version
         self._timeout_seconds = timeout_seconds
+        self._download_timeout_seconds = download_timeout_seconds
         self._opener = opener or urllib.request.urlopen
 
     def check_for_updates(self) -> UpdateCheckResult:
@@ -113,7 +115,7 @@ class UpdateService:
         )
 
         try:
-            with self._opener(request, timeout=self._timeout_seconds) as response:
+            with self._opener(request, timeout=self._download_timeout_seconds) as response:
                 total_size = int(response.headers.get("content-length", 0))
                 block_size = 8192
                 downloaded = 0
