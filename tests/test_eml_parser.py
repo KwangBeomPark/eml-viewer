@@ -47,6 +47,32 @@ class EmlParserTest(unittest.TestCase):
             self.assertIn("대체 텍스트", parsed.plain_body)
             self.assertIn("HTML 본문", parsed.html_body)
 
+    def test_html_only_email_generates_plain_text_from_nested_table(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "html_only_table.eml"
+            message = EmailMessage()
+            message["Subject"] = "HTML only"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content(
+                """
+                <html><body>
+                <table><tr><td>Outer text<table><tr><td>Inner text</td></tr></table></td></tr></table>
+                <img src="cid:image001@example" alt="chart">
+                </body></html>
+                """,
+                subtype="html",
+                charset="utf-8",
+            )
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertTrue(parsed.plain_body_generated)
+            self.assertIn("Outer text", parsed.plain_body)
+            self.assertIn("Inner text", parsed.plain_body)
+            self.assertIn("[Image: chart]", parsed.plain_body)
+
     def test_parse_attachment_info_and_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "attachment.eml"
@@ -107,6 +133,65 @@ class EmlParserTest(unittest.TestCase):
             self.assertEqual(parsed.inline_resources[0].content_id, "image001@example")
             self.assertEqual(len(parsed.attachments), 1)
             self.assertEqual(parsed.attachments[0].filename, "report.txt")
+
+    def test_referenced_attachment_image_is_treated_as_inline_resource(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "referenced_attachment_image.eml"
+            message = EmailMessage()
+            message["Subject"] = "Referenced image"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content("plain", charset="utf-8")
+            message.add_alternative(
+                '<html><body><table><tr><td><img src="cid:image001%40example"></td></tr></table></body></html>',
+                subtype="html",
+            )
+            html_part = message.get_payload()[1]
+            html_part.add_related(
+                b"fake-png",
+                maintype="image",
+                subtype="png",
+                cid="<image001@example>",
+                disposition="attachment",
+                filename="image001.png",
+            )
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(len(parsed.inline_resources), 1)
+            self.assertEqual(parsed.inline_resources[0].content_id, "image001@example")
+            self.assertEqual(parsed.attachments, [])
+
+    def test_content_location_image_is_treated_as_inline_resource(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "content_location_image.eml"
+            message = EmailMessage()
+            message["Subject"] = "Content location"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content("plain", charset="utf-8")
+            message.add_alternative(
+                '<html><body><table><tr><td><img src="images/logo.png"></td></tr></table></body></html>',
+                subtype="html",
+            )
+            html_part = message.get_payload()[1]
+            html_part.add_related(
+                b"fake-png",
+                maintype="image",
+                subtype="png",
+                filename="logo.png",
+                disposition="attachment",
+            )
+            image_part = html_part.get_payload()[1]
+            image_part["Content-Location"] = "images/logo.png"
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(len(parsed.inline_resources), 1)
+            self.assertEqual(parsed.inline_resources[0].content_location, "images/logo.png")
+            self.assertEqual(parsed.attachments, [])
 
     def test_parse_korean_subject_and_attachment_filename(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

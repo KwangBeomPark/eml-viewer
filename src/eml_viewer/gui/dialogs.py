@@ -25,6 +25,15 @@ def select_attachment_destination(parent: QWidget, default_filename: str) -> Pat
     return Path(filename) if filename else None
 
 
+def select_attachment_directory(parent: QWidget) -> Path | None:
+    directory = QFileDialog.getExistingDirectory(
+        parent,
+        "첨부파일 저장 폴더 선택",
+        str(Path.home()),
+    )
+    return Path(directory) if directory else None
+
+
 def ask_overwrite(parent: QWidget, path: Path) -> bool:
     result = QMessageBox.question(
         parent,

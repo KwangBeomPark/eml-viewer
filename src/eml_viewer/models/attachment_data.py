@@ -29,3 +29,4 @@ class InlineResource:
     filename: str
     content_type: str
     payload: bytes
+    content_location: str = ""

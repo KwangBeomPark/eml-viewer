@@ -73,6 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     from eml_viewer.gui.main_window import MainWindow
+    from eml_viewer.gui.i18n import set_language
+    from eml_viewer.gui.theme import apply_theme
     from eml_viewer.services.attachment_service import AttachmentService
     from eml_viewer.services.eml_parser import EmlParser
     from eml_viewer.services.file_operation_service import FileOperationService
@@ -87,12 +89,17 @@ def main(argv: list[str] | None = None) -> int:
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    settings_service = SettingsService()
+    settings = settings_service.load_settings()
+    set_language(settings.language)
+    apply_theme(app, settings.theme)
+
     parser = EmlParser()
     file_operation_service = FileOperationService()
     window = MainWindow(
         parser=parser,
         attachment_service=AttachmentService(parser, file_operation_service),
-        settings_service=SettingsService(),
+        settings_service=settings_service,
         file_operation_service=file_operation_service,
         update_service=UpdateService(),
     )

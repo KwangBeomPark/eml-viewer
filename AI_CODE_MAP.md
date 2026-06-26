@@ -29,6 +29,9 @@ eml-viewer/
 │       │   ├── metadata_widgets.py  # 제목/보낸 사람/받는 사람 복사 가능한 메타데이터 위젯
 │       │   ├── message_widgets.py   # 본문 탭, CID 이미지 치환, 본문 확대/축소
 │       │   ├── attachment_widgets.py # 첨부파일 요약/접힘/펼침/저장 UI
+│       │   ├── settings_dialog.py   # 언어/테마 설정 대화상자
+│       │   ├── theme.py             # 라이트/다크/시스템 테마 적용
+│       │   ├── i18n.py              # GUI 번역 키 관리
 │       │   └── dialogs.py          # 공통 알림/선택 대화상자
 │       └── services/               # 비즈니스 로직 레이어
 │           ├── eml_parser.py       # EML 파일 파서 서비스
@@ -43,6 +46,8 @@ eml-viewer/
 - **메일 메타데이터 복사 UI**: `src/eml_viewer/gui/metadata_widgets.py`의 `CopyableLineEdit`
 - **본문 표시 및 확대/축소**: `src/eml_viewer/gui/message_widgets.py`의 `MessageBodyWidget`
 - **첨부파일 요약 및 저장 UI**: `src/eml_viewer/gui/attachment_widgets.py`의 `AttachmentPanel`
+- **HTML-only 메일 텍스트 fallback 및 inline 이미지 분류**: `src/eml_viewer/services/eml_parser.py`의 `EmlParser`
+- **언어/테마 설정 UI**: `src/eml_viewer/gui/settings_dialog.py`의 `SettingsDialog`, `src/eml_viewer/gui/theme.py`의 `apply_theme()`
 - **업데이트 정보 확인**: `src/eml_viewer/services/update_service.py`의 `UpdateService.check_for_updates()`
 - **업데이트 파일 다운로드**: `src/eml_viewer/services/update_service.py`의 `UpdateService.download_installer()`
 - **백그라운드 다운로드 스레드**: `src/eml_viewer/gui/main_window.py`의 `DownloadThread` 클래스
@@ -57,6 +62,14 @@ eml-viewer/
 
 ## 5. 변경 이력
 ### 2026-06-26
+- **HTML 본문/첨부/설정 UX 개선 2차 업데이트**:
+  - `text/plain`이 없는 HTML-only 메일에서 표/중첩 표의 텍스트를 Plain Text 탭에 자동 생성해 표시.
+  - HTML 본문 이미지 전처리를 `cid:`, URL 인코딩 CID, `Content-Location`, 상대 파일명, `background`, CSS `url(...)`까지 확장.
+  - HTML에서 참조되는 이미지라면 `Content-Disposition: attachment`여도 본문 inline resource로 분류해 첨부 목록과 본문 표시가 충돌하지 않도록 보강.
+  - 첨부파일 패널을 체크박스 다중 선택 기반으로 변경하고, 여러 파일 저장 시 폴더 선택 및 중복 파일명 자동 정리(`name (2).ext`)를 적용.
+  - 설정 대화상자, 언어 설정(재시작 적용), 테마 설정(즉시 적용), 다크 모드 팔레트를 추가.
+  - 실제 문제가 난 EML 샘플을 받으면 `tests/`에 fixture/회귀 테스트로 추가해 HTML 호환성 회귀를 막아야 함.
+
 - **메일 읽기 UX 개선 1차 업데이트**:
   - 제목/보낸 사람/받는 사람 필드에 `CopyableLineEdit`을 적용해 우측 복사 버튼과 상태바 `Copied` 피드백을 추가.
   - 첨부파일 패널을 첨부가 없을 때 자동 숨김 처리하고, 첨부가 있을 때는 기본 접힘 요약(`Attachments N · size`)으로 표시하며 필요 시 펼쳐서 저장하도록 변경.

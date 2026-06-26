@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from eml_viewer.models.attachment_data import AttachmentInfo
 from eml_viewer.services.attachment_service import AttachmentService
 
 
@@ -36,6 +37,19 @@ class AttachmentServiceTest(unittest.TestCase):
 
             service.save_attachment(eml_path, 0, destination, overwrite=True)
             self.assertEqual(destination.read_bytes(), b"hello")
+
+    def test_bulk_preview_deduplicates_duplicate_filenames(self) -> None:
+        service = AttachmentService()
+        attachments = [
+            AttachmentInfo(index=0, filename="same.txt", content_type="text/plain", size=1),
+            AttachmentInfo(index=1, filename="same.txt", content_type="text/plain", size=1),
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            previews = service.create_bulk_save_preview(attachments, temp_dir)
+
+            self.assertEqual(previews[0].destination.name, "same.txt")
+            self.assertEqual(previews[1].destination.name, "same (2).txt")
 
     def _create_email_with_attachment(self, folder: Path) -> Path:
         path = folder / "attachment.eml"

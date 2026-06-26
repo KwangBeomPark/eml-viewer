@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from eml_viewer.models.app_settings import AppSettings
@@ -34,8 +35,10 @@ class SettingsService:
         )
 
     def save_window_geometry(self, x: int, y: int, width: int, height: int) -> None:
+        current = self.load_settings()
         self.save_settings(
-            AppSettings(
+            replace(
+                current,
                 window_x=x,
                 window_y=y,
                 window_width=width,

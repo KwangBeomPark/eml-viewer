@@ -19,6 +19,7 @@ class ParsedEmail:
     attachments: list[AttachmentInfo] = field(default_factory=list)
     inline_resources: list[InlineResource] = field(default_factory=list)
     source_path: Path | None = None
+    plain_body_generated: bool = False
 
     @property
     def has_html(self) -> bool:

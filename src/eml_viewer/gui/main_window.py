@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, QThread, Signal
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QApplication,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -21,8 +23,11 @@ from PySide6.QtWidgets import (
 
 from eml_viewer.gui import dialogs
 from eml_viewer.gui.attachment_widgets import AttachmentPanel
+from eml_viewer.gui.i18n import tr
 from eml_viewer.gui.message_widgets import MessageBodyWidget
 from eml_viewer.gui.metadata_widgets import CopyableLineEdit
+from eml_viewer.gui.settings_dialog import SettingsDialog
+from eml_viewer.gui.theme import apply_theme
 from eml_viewer.models.attachment_data import AttachmentInfo
 from eml_viewer.models.email_data import ParsedEmail
 from eml_viewer.services.attachment_service import AttachmentService
@@ -100,7 +105,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._restore_window_geometry()
 
-        self._attachment_panel.save_requested.connect(self._save_attachment)
+        self._attachment_panel.save_requested.connect(self._save_attachments)
         self._subject_edit.copy_requested.connect(self._copy_to_clipboard)
         self._sender_edit.copy_requested.connect(self._copy_to_clipboard)
         self._recipients_edit.copy_requested.connect(self._copy_to_clipboard)
@@ -114,8 +119,12 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut("Alt+F4")
         exit_action.triggered.connect(self.close)
 
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self._open_settings)
+
         file_menu = self.menuBar().addMenu("파일")
         file_menu.addAction(open_action)
+        file_menu.addAction(settings_action)
         file_menu.addSeparator()
         file_menu.addAction(exit_action)
 
@@ -192,14 +201,75 @@ class MainWindow(QMainWindow):
         self._attachment_panel.set_attachments(email.attachments)
 
     def _copy_to_clipboard(self, text: str) -> None:
-        from PySide6.QtWidgets import QApplication
-
         clipboard = QApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(text)
             self.statusBar().showMessage("Copied")
 
-    def _save_attachment(self, attachment: AttachmentInfo) -> None:
+    def _open_settings(self) -> None:
+        settings = self._settings_service.load_settings()
+        dialog = SettingsDialog(settings, self)
+        if dialog.exec() != SettingsDialog.DialogCode.Accepted:
+            return
+
+        new_settings = replace(settings, language=dialog.language, theme=dialog.theme)
+        language_changed = new_settings.language != settings.language
+        self._settings_service.save_settings(new_settings)
+        apply_theme(QApplication.instance(), new_settings.theme)
+        if language_changed:
+            dialogs.show_info(self, tr("settings.title"), tr("settings.restart_required"))
+        self.statusBar().showMessage(tr("settings.saved"))
+
+    def _save_attachments(self, attachments: list[AttachmentInfo]) -> None:
+        if self._current_email is None or self._current_email.source_path is None:
+            dialogs.show_error(self, "첨부파일 저장 실패", "먼저 EML 파일을 열어 주세요.")
+            return
+        if not attachments:
+            return
+
+        if len(attachments) == 1:
+            self._save_single_attachment(attachments[0])
+            return
+
+        destination_dir = dialogs.select_attachment_directory(self)
+        if destination_dir is None:
+            return
+
+        previews = self._attachment_service.create_bulk_save_preview(attachments, destination_dir)
+        overwrite_count = sum(1 for preview in previews if preview.will_overwrite)
+        preview_lines = "\n".join(f"- {preview.source_label} -> {preview.destination.name}" for preview in previews)
+        overwrite_text = (
+            f"\n\n기존 파일 {overwrite_count}개를 덮어씁니다."
+            if overwrite_count
+            else "\n\n모두 새 파일로 저장합니다."
+        )
+        if not dialogs.ask_execute_file_operation(
+            self,
+            "첨부파일 저장 확인",
+            f"저장 폴더: {destination_dir}\n\n{preview_lines}{overwrite_text}",
+        ):
+            self.statusBar().showMessage("첨부파일 저장을 취소했습니다.")
+            return
+
+        try:
+            results = self._attachment_service.save_attachments(
+                email_path=self._current_email.source_path,
+                attachments=attachments,
+                destination_dir=destination_dir,
+                overwrite=bool(overwrite_count),
+            )
+        except Exception as exc:
+            self._show_error("첨부파일 저장 실패", exc)
+            return
+
+        dialogs.show_info(
+            self,
+            "첨부파일 저장 완료",
+            f"첨부파일 {len(results)}개를 저장했습니다.\n\n{destination_dir}",
+        )
+        self.statusBar().showMessage(f"첨부파일 {len(results)}개를 저장했습니다: {destination_dir}")
+
+    def _save_single_attachment(self, attachment: AttachmentInfo) -> None:
         if self._current_email is None or self._current_email.source_path is None:
             dialogs.show_error(self, "첨부파일 저장 실패", "먼저 EML 파일을 열어 주세요.")
             return

@@ -81,6 +81,48 @@ class MessageBodyWidgetTest(unittest.TestCase):
         self.assertNotIn("cid:second@example", prepared_html)
         widget.clear()
 
+    def test_prepare_html_replaces_content_location_and_relative_image_reference(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="",
+            html_body='<html><body><table><tr><td><img src="images/logo.png"></td></tr></table></body></html>',
+            inline_resources=[
+                InlineResource(
+                    content_id="",
+                    filename="logo.png",
+                    content_type="image/png",
+                    payload=b"fake-png",
+                    content_location="images/logo.png",
+                )
+            ],
+        )
+
+        prepared_html = widget._prepare_html(email)
+
+        self.assertIn("file:///", prepared_html)
+        self.assertNotIn('src="images/logo.png"', prepared_html)
+        widget.clear()
+
+    def test_prepare_html_keeps_remote_images_unresolved(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="",
+            html_body='<html><body><img src="https://example.com/logo.png"></body></html>',
+            inline_resources=[],
+        )
+
+        prepared_html = widget._prepare_html(email)
+
+        self.assertIn("https://example.com/logo.png", prepared_html)
+
     def test_zoom_controls_clamp_and_reset_percent(self) -> None:
         widget = MessageBodyWidget()
 

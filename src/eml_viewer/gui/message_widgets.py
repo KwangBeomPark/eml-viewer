@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import html
 import mimetypes
 import re
 import tempfile
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -40,7 +41,11 @@ class ZoomTextBrowser(QTextBrowser):
 class MessageBodyWidget(QWidget):
     """Plain Text와 HTML 본문을 나눠서 보여주는 화면입니다."""
 
-    _cid_pattern = re.compile(r"cid:([^\"'\s>)]+)", re.IGNORECASE)
+    _resource_attr_pattern = re.compile(
+        r"(?P<prefix>\b(?:src|background)\s*=\s*)(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    _css_url_pattern = re.compile(r"url\((?P<quote>[\"']?)(?P<value>.*?)(?P=quote)\)", re.IGNORECASE)
     _invalid_filename_chars = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
     _reserved_windows_names = {
         "CON",
@@ -65,6 +70,7 @@ class MessageBodyWidget(QWidget):
         self._zoom_in_button = QPushButton("+", self)
         self._zoom_reset_button = QPushButton("100%", self)
         self._zoom_label = QLabel("100%", self)
+        self._plain_notice_label = QLabel("HTML 본문에서 자동 생성한 텍스트입니다.", self)
 
         self._plain_browser.setOpenExternalLinks(False)
         self._html_browser.setOpenExternalLinks(False)
@@ -85,6 +91,9 @@ class MessageBodyWidget(QWidget):
 
         self._tabs.addTab(self._plain_browser, "Plain Text")
         self._tabs.addTab(self._html_browser, "HTML")
+        self._tabs.currentChanged.connect(self._update_plain_notice_visibility)
+        self._plain_notice_label.setVisible(False)
+        self._plain_notice_label.setObjectName("plainNotice")
 
         zoom_layout = QHBoxLayout()
         zoom_layout.addStretch(1)
@@ -96,6 +105,7 @@ class MessageBodyWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addLayout(zoom_layout)
+        layout.addWidget(self._plain_notice_label)
         layout.addWidget(self._tabs)
 
         self.clear()
@@ -108,6 +118,7 @@ class MessageBodyWidget(QWidget):
         self._plain_browser.setPlainText("EML 파일을 열면 본문이 여기에 표시됩니다.")
         self._html_browser.setPlainText("HTML 본문이 여기에 표시됩니다.")
         self._tabs.setCurrentIndex(0)
+        self._update_plain_notice_visibility()
 
     def set_email(self, email: ParsedEmail) -> None:
         self._current_email = email
@@ -143,6 +154,7 @@ class MessageBodyWidget(QWidget):
         html_text = email.html_body.strip()
 
         self._plain_browser.setPlainText(plain_text)
+        self._update_plain_notice_visibility()
         if html_text:
             self._html_browser.setHtml(self._zoomed_html(self._prepare_html(email)))
             self._tabs.setCurrentIndex(1)
@@ -150,6 +162,7 @@ class MessageBodyWidget(QWidget):
             self._clear_inline_temp_dir()
             self._html_browser.setPlainText("HTML 본문이 없습니다.")
             self._tabs.setCurrentIndex(0)
+        self._update_plain_notice_visibility()
 
     def _apply_zoom_controls(self) -> None:
         self._zoom_label.setText(f"{self._zoom_percent}%")
@@ -166,6 +179,11 @@ class MessageBodyWidget(QWidget):
             return re.sub(r"</head>", f"{style}</head>", html, count=1, flags=re.IGNORECASE)
         return f"{style}{html}"
 
+    def _update_plain_notice_visibility(self) -> None:
+        is_plain_tab = self._tabs.currentWidget() == self._plain_browser
+        is_generated = bool(self._current_email and self._current_email.plain_body_generated)
+        self._plain_notice_label.setVisible(is_plain_tab and is_generated)
+
     def _prepare_html(self, email: ParsedEmail) -> str:
         self._clear_inline_temp_dir()
         if not email.inline_resources:
@@ -173,7 +191,7 @@ class MessageBodyWidget(QWidget):
 
         self._inline_temp_dir = tempfile.TemporaryDirectory(prefix="eml-viewer-inline-")
         temp_root = Path(self._inline_temp_dir.name)
-        cid_to_uri: dict[str, str] = {}
+        resource_to_uri: dict[str, str] = {}
 
         for index, resource in enumerate(email.inline_resources, start=1):
             extension = mimetypes.guess_extension(resource.content_type) or ""
@@ -183,13 +201,44 @@ class MessageBodyWidget(QWidget):
             filename = f"{index}-{filename}"
             target_path = temp_root / filename
             target_path.write_bytes(resource.payload)
-            cid_to_uri[resource.content_id.lower()] = target_path.as_uri()
+            for key in self._resource_keys(resource.content_id):
+                resource_to_uri[key] = target_path.as_uri()
+            for key in self._resource_keys(resource.content_location):
+                resource_to_uri[key] = target_path.as_uri()
+            for key in self._resource_keys(resource.filename):
+                resource_to_uri[key] = target_path.as_uri()
 
-        def replace_match(match: re.Match[str]) -> str:
-            content_id = unquote(match.group(1)).strip().strip("<>").lower()
-            return cid_to_uri.get(content_id, match.group(0))
+        unresolved_refs: set[str] = set()
 
-        return self._cid_pattern.sub(replace_match, email.html_body)
+        def resolve_reference(value: str) -> str | None:
+            for key in self._resource_keys(value):
+                uri = resource_to_uri.get(key)
+                if uri:
+                    return uri
+            if self._looks_like_embedded_reference(value):
+                unresolved_refs.add(value)
+            return None
+
+        def replace_attr(match: re.Match[str]) -> str:
+            value = match.group("value")
+            uri = resolve_reference(value)
+            if uri is None:
+                return match.group(0)
+            return f"{match.group('prefix')}{match.group('quote')}{uri}{match.group('quote')}"
+
+        def replace_css_url(match: re.Match[str]) -> str:
+            value = match.group("value")
+            uri = resolve_reference(value)
+            if uri is None:
+                return match.group(0)
+            quote = match.group("quote") or ""
+            return f"url({quote}{uri}{quote})"
+
+        prepared_html = self._resource_attr_pattern.sub(replace_attr, email.html_body)
+        prepared_html = self._css_url_pattern.sub(replace_css_url, prepared_html)
+        if unresolved_refs:
+            prepared_html += self._unresolved_resource_notice(len(unresolved_refs))
+        return prepared_html
 
     def _safe_filename(self, filename: str) -> str:
         cleaned = self._invalid_filename_chars.sub("_", filename).strip(" .")
@@ -197,6 +246,48 @@ class MessageBodyWidget(QWidget):
             cleaned_path = Path(cleaned)
             cleaned = f"{cleaned_path.stem}_{cleaned_path.suffix}" if cleaned_path.suffix else f"{cleaned}_"
         return cleaned or "inline-resource"
+
+    def _resource_keys(self, value: str) -> set[str]:
+        if not value:
+            return set()
+
+        cleaned = html.unescape(unquote(str(value))).strip().strip("\"'<>")
+        if not cleaned:
+            return set()
+
+        lowered = cleaned.lower()
+        if lowered.startswith(("http://", "https://", "data:", "mailto:", "#")):
+            return set()
+        if lowered.startswith("cid:"):
+            cleaned = cleaned[4:]
+            lowered = cleaned.lower()
+
+        parsed_path = urlparse(cleaned).path or cleaned
+        candidates = {
+            cleaned,
+            lowered,
+            cleaned.lstrip("./\\"),
+            parsed_path,
+            parsed_path.lstrip("./\\"),
+            Path(parsed_path.replace("\\", "/")).name,
+        }
+        return {candidate.strip().strip("<>").lower() for candidate in candidates if candidate.strip()}
+
+    def _looks_like_embedded_reference(self, value: str) -> bool:
+        keys = self._resource_keys(value)
+        if not keys:
+            return False
+        lowered = value.lower().strip()
+        return lowered.startswith("cid:") or any(
+            key.endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg")) for key in keys
+        )
+
+    def _unresolved_resource_notice(self, count: int) -> str:
+        return (
+            "<hr><p style=\"color:#a15c00; font-size:90%;\">"
+            f"표시하지 못한 임베드 이미지 {count}개가 있습니다."
+            "</p>"
+        )
 
     def _clear_inline_temp_dir(self) -> None:
         if self._inline_temp_dir is not None:

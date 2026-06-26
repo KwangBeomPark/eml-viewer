@@ -16,7 +16,14 @@ class SettingsServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             service = SettingsService(settings_path)
-            expected = AppSettings(window_x=10, window_y=20, window_width=800, window_height=600)
+            expected = AppSettings(
+                window_x=10,
+                window_y=20,
+                window_width=800,
+                window_height=600,
+                language="en",
+                theme="dark",
+            )
 
             service.save_settings(expected)
             actual = service.load_settings()
@@ -31,6 +38,26 @@ class SettingsServiceTest(unittest.TestCase):
             actual = SettingsService(settings_path).load_settings()
 
             self.assertEqual(actual, AppSettings())
+
+    def test_window_geometry_save_preserves_language_and_theme(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = Path(temp_dir) / "settings.json"
+            service = SettingsService(settings_path)
+            service.save_settings(AppSettings(language="en", theme="dark"))
+
+            service.save_window_geometry(x=1, y=2, width=3, height=4)
+            actual = service.load_settings()
+
+            self.assertEqual(actual.language, "en")
+            self.assertEqual(actual.theme, "dark")
+            self.assertEqual(actual.window_x, 1)
+            self.assertEqual(actual.window_height, 4)
+
+    def test_invalid_language_and_theme_fall_back_to_defaults(self) -> None:
+        actual = AppSettings.from_dict({"language": "bad", "theme": "bad"})
+
+        self.assertEqual(actual.language, "ko")
+        self.assertEqual(actual.theme, "system")
 
 
 if __name__ == "__main__":

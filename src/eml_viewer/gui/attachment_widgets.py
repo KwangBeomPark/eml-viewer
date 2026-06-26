@@ -25,13 +25,13 @@ class AttachmentPanel(QWidget):
         self._expanded = False
 
         self._title_label = QLabel("첨부파일", self)
-        self._toggle_button = QPushButton("Show", self)
-        self._table = QTableWidget(0, 3, self)
-        self._save_button = QPushButton("선택한 첨부 저장", self)
+        self._toggle_button = QPushButton("Expand", self)
+        self._table = QTableWidget(0, 4, self)
+        self._save_button = QPushButton("Save selected", self)
 
-        self._table.setHorizontalHeaderLabels(["파일명", "종류", "크기"])
+        self._table.setHorizontalHeaderLabels(["", "파일명", "종류", "크기"])
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.horizontalHeader().setStretchLastSection(True)
         self._table.verticalHeader().setVisible(False)
@@ -39,7 +39,7 @@ class AttachmentPanel(QWidget):
         self._toggle_button.clicked.connect(self._toggle_expanded)
         self._save_button.setEnabled(False)
         self._save_button.clicked.connect(self._emit_save_requested)
-        self._table.itemSelectionChanged.connect(self._update_button_state)
+        self._table.itemChanged.connect(self._update_button_state)
 
         header_layout = QHBoxLayout()
         header_layout.addWidget(self._title_label)
@@ -55,16 +55,28 @@ class AttachmentPanel(QWidget):
     def set_attachments(self, attachments: list[AttachmentInfo]) -> None:
         self._attachments = list(attachments)
         self._expanded = False
+        self._table.blockSignals(True)
         self._table.setRowCount(len(self._attachments))
 
         for row, attachment in enumerate(self._attachments):
+            checkbox_item = QTableWidgetItem()
+            checkbox_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            checkbox_item.setCheckState(Qt.CheckState.Unchecked)
+
             filename_item = QTableWidgetItem(attachment.filename)
             filename_item.setData(Qt.ItemDataRole.UserRole, attachment.index)
 
-            self._table.setItem(row, 0, filename_item)
-            self._table.setItem(row, 1, QTableWidgetItem(attachment.content_type))
-            self._table.setItem(row, 2, QTableWidgetItem(attachment.display_size))
+            self._table.setItem(row, 0, checkbox_item)
+            self._table.setItem(row, 1, filename_item)
+            self._table.setItem(row, 2, QTableWidgetItem(attachment.content_type))
+            self._table.setItem(row, 3, QTableWidgetItem(attachment.display_size))
 
+        self._table.blockSignals(False)
+        self._table.setColumnWidth(0, 34)
         self._table.resizeColumnsToContents()
         self._update_summary()
         self._apply_expanded_state()
@@ -74,22 +86,27 @@ class AttachmentPanel(QWidget):
         self.set_attachments([])
 
     def current_attachment(self) -> AttachmentInfo | None:
-        selected_rows = self._table.selectionModel().selectedRows()
-        if not selected_rows:
+        selected = self.selected_attachments()
+        if not selected:
             return None
+        return selected[0]
 
-        row = selected_rows[0].row()
-        if row < 0 or row >= len(self._attachments):
-            return None
-        return self._attachments[row]
+    def selected_attachments(self) -> list[AttachmentInfo]:
+        selected: list[AttachmentInfo] = []
+        for row, attachment in enumerate(self._attachments):
+            item = self._table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                selected.append(attachment)
+        return selected
 
     def _update_button_state(self) -> None:
-        self._save_button.setEnabled(self._expanded and self.current_attachment() is not None)
+        self._update_summary()
+        self._save_button.setEnabled(self._expanded and bool(self.selected_attachments()))
 
     def _emit_save_requested(self) -> None:
-        attachment = self.current_attachment()
-        if attachment is not None:
-            self.save_requested.emit(attachment)
+        attachments = self.selected_attachments()
+        if attachments:
+            self.save_requested.emit(attachments)
 
     def _toggle_expanded(self) -> None:
         self._expanded = not self._expanded
@@ -98,8 +115,11 @@ class AttachmentPanel(QWidget):
 
     def _update_summary(self) -> None:
         count = len(self._attachments)
+        selected_count = len(self.selected_attachments()) if count else 0
         total_size = sum(max(0, attachment.size) for attachment in self._attachments)
-        self._title_label.setText(f"Attachments {count} · {self._display_size(total_size)}")
+        self._title_label.setText(
+            f"Attachments {count} · {self._display_size(total_size)} · Selected {selected_count}"
+        )
 
     def _apply_expanded_state(self) -> None:
         has_attachments = bool(self._attachments)
@@ -107,7 +127,7 @@ class AttachmentPanel(QWidget):
         self._table.setVisible(has_attachments and self._expanded)
         self._save_button.setVisible(has_attachments and self._expanded)
         self._toggle_button.setVisible(has_attachments)
-        self._toggle_button.setText("Hide" if self._expanded else "Show")
+        self._toggle_button.setText("Collapse" if self._expanded else "Expand")
 
         if not has_attachments:
             self.setMaximumHeight(0)
