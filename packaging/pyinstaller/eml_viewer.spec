@@ -4,13 +4,14 @@ from pathlib import Path
 
 project_root = Path(SPECPATH).resolve().parents[1]
 src_root = project_root / "src"
+app_icon = project_root / "assets" / "app.ico"
 
 
 a = Analysis(
     [str(src_root / "eml_viewer" / "__main__.py")],
     pathex=[str(src_root)],
     binaries=[],
-    datas=[],
+    datas=[(str(app_icon), "assets")],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -41,6 +42,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=str(app_icon),
 )
 coll = COLLECT(
     exe,

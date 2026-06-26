@@ -66,6 +66,17 @@ class UpdateServiceTest(unittest.TestCase):
         with self.assertRaises(UpdateCheckError):
             service.check_for_updates()
 
+    def test_missing_latest_release_has_actionable_message(self) -> None:
+        def failing_opener(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", None, None)
+
+        service = UpdateService(current_version="0.1.0", opener=failing_opener)
+
+        with self.assertRaises(UpdateCheckError) as context:
+            service.check_for_updates()
+
+        self.assertIn("배포 정보를 찾을 수 없습니다", str(context.exception))
+
     def test_unexpected_payload_shape_becomes_user_level_error(self) -> None:
         service = UpdateService(current_version="0.1.0", opener=lambda request, timeout: FakeResponse([]))
 

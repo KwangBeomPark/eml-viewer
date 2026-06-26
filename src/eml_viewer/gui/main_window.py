@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from eml_viewer.gui import dialogs
 from eml_viewer.gui.attachment_widgets import AttachmentPanel
 from eml_viewer.gui.message_widgets import MessageBodyWidget
+from eml_viewer.gui.metadata_widgets import CopyableLineEdit
 from eml_viewer.models.attachment_data import AttachmentInfo
 from eml_viewer.models.email_data import ParsedEmail
 from eml_viewer.services.attachment_service import AttachmentService
@@ -86,9 +87,9 @@ class MainWindow(QMainWindow):
         self._current_email: ParsedEmail | None = None
         self._download_thread: DownloadThread | None = None
 
-        self._subject_edit = self._readonly_line_edit()
-        self._sender_edit = self._readonly_line_edit()
-        self._recipients_edit = self._readonly_line_edit()
+        self._subject_edit = CopyableLineEdit("Copy subject", self)
+        self._sender_edit = CopyableLineEdit("Copy sender", self)
+        self._recipients_edit = CopyableLineEdit("Copy recipients", self)
         self._date_edit = self._readonly_line_edit()
         self._current_file_label = QLabel("열린 파일 없음", self)
         self._body_widget = MessageBodyWidget(self)
@@ -100,6 +101,9 @@ class MainWindow(QMainWindow):
         self._restore_window_geometry()
 
         self._attachment_panel.save_requested.connect(self._save_attachment)
+        self._subject_edit.copy_requested.connect(self._copy_to_clipboard)
+        self._sender_edit.copy_requested.connect(self._copy_to_clipboard)
+        self._recipients_edit.copy_requested.connect(self._copy_to_clipboard)
 
     def _build_actions(self) -> None:
         open_action = QAction("EML 열기", self)
@@ -186,6 +190,14 @@ class MainWindow(QMainWindow):
         self._current_file_label.setText(str(email.source_path or ""))
         self._body_widget.set_email(email)
         self._attachment_panel.set_attachments(email.attachments)
+
+    def _copy_to_clipboard(self, text: str) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+            self.statusBar().showMessage("Copied")
 
     def _save_attachment(self, attachment: AttachmentInfo) -> None:
         if self._current_email is None or self._current_email.source_path is None:

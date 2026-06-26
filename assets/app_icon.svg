@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="EML Viewer icon">
+  <defs>
+    <linearGradient id="bg" x1="38" y1="26" x2="220" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#163B73"/>
+      <stop offset="0.55" stop-color="#1C6A8C"/>
+      <stop offset="1" stop-color="#1A9A8A"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="79" y1="57" x2="183" y2="201" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#DDEBFF"/>
+    </linearGradient>
+  </defs>
+  <rect x="18" y="18" width="220" height="220" rx="48" fill="url(#bg)"/>
+  <path d="M74 56h82l38 39v105H74z" fill="url(#paper)"/>
+  <path d="M156 56v40h38" fill="#BFD7F6"/>
+  <path d="M74 106l60 43 60-43v82H74z" fill="#F7FBFF"/>
+  <path d="M74 106l60 48 60-48" fill="none" stroke="#196A8E" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M91 184h75" stroke="#1C6A8C" stroke-width="12" stroke-linecap="round"/>
+  <path d="M91 162h45" stroke="#74C7BD" stroke-width="12" stroke-linecap="round"/>
+</svg>

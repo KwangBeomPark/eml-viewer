@@ -67,7 +67,9 @@ class UpdateService:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
-                raise UpdateCheckError("아직 등록된 배포 버전이 없습니다.") from exc
+                raise UpdateCheckError(
+                    "업데이트 배포 정보를 찾을 수 없습니다. GitHub Releases 공개 여부와 저장소 접근 권한을 확인해 주세요."
+                ) from exc
             raise UpdateCheckError(f"업데이트 정보를 가져오지 못했습니다. HTTP {exc.code}") from exc
         except Exception as exc:
             raise UpdateCheckError("업데이트 정보를 가져오지 못했습니다. 인터넷 연결을 확인해 주세요.") from exc

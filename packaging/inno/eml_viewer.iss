@@ -1,8 +1,9 @@
 #define MyAppName "EML Viewer"
 #define MyAppPublisher "KwangBeomPark"
 #define MyAppExeName "EmlViewer.exe"
+#define MyAppIcon "..\..\assets\app.ico"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1"
 #endif
 
 [Setup]
@@ -21,6 +22,7 @@ Compression=lzma
 SolidCompression=yes
 PrivilegesRequired=lowest
 UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile={#MyAppIcon}
 WizardStyle=modern
 ChangesAssociations=yes
 

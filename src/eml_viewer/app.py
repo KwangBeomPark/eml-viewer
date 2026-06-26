@@ -38,6 +38,11 @@ def _show_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
+def _resource_path(relative_path: str) -> Path:
+    base_path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base_path / relative_path
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
@@ -57,6 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             logging.warning(f"네임드 뮤텍스 생성 실패: {exc}")
 
     try:
+        from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import QApplication
     except ModuleNotFoundError:
         print(
@@ -77,6 +83,9 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName("EML Viewer")
     app.setOrganizationName("Local")
     app.setApplicationVersion(__version__)
+    icon_path = _resource_path("assets/app.ico")
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     parser = EmlParser()
     file_operation_service = FileOperationService()
@@ -87,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         file_operation_service=file_operation_service,
         update_service=UpdateService(),
     )
+    if not app.windowIcon().isNull():
+        window.setWindowIcon(app.windowIcon())
     window.show()
 
     if len(argv) > 1:

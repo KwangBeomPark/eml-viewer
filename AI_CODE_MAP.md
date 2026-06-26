@@ -4,6 +4,7 @@
 
 ## 1. 프로젝트 개요 및 실행 환경
 - **프로젝트 목적**: Windows 환경을 위한 데스크톱 EML(이메일 파일) 뷰어 애플리케이션
+- **제품 방향**: 단순 EML 열람기에서 시작해 메일 내용을 더 편하게 읽고, 첨부파일을 관리하고, 업데이트를 받을 수 있는 로컬 메일 생산성 도구로 확장합니다. 향후에는 설정 기반 SMTP 발송, 나에게 보내기/다른 사람에게 전달, 번역, 요약, 검색 같은 기능이 추가될 수 있으므로 GUI 위젯과 비즈니스 서비스의 경계를 유지합니다.
 - **기술 스택**: Python 3.13, PySide6 (GUI), PyInstaller (단일 EXE 패키징), Inno Setup 6 (설치 프로그램 빌드)
 - **실행 방법**:
   - 개발 실행: `.venv\Scripts\python -m eml_viewer` 또는 `.venv\Scripts\eml-viewer`
@@ -14,6 +15,7 @@
 eml-viewer/
 ├── myAGENT.md                      # 공통 개발 원칙 문서
 ├── AI_CODE_MAP.md                  # 프로젝트 전용 코드 지도 (본 문서)
+├── assets/                         # 앱 아이콘 등 패키징/런타임 리소스
 ├── pyproject.toml                  # 프로젝트 빌드 구성 및 종속성 관리
 ├── packaging/
 │   ├── pyinstaller/                # PyInstaller spec 파일 위치
@@ -24,6 +26,9 @@ eml-viewer/
 │       ├── app.py                  # 프로그램 시작 진입점 및 예외 처리
 │       ├── gui/                    # GUI 레이어
 │       │   ├── main_window.py      # 메인 화면 및 업데이트 다운로드 연동
+│       │   ├── metadata_widgets.py  # 제목/보낸 사람/받는 사람 복사 가능한 메타데이터 위젯
+│       │   ├── message_widgets.py   # 본문 탭, CID 이미지 치환, 본문 확대/축소
+│       │   ├── attachment_widgets.py # 첨부파일 요약/접힘/펼침/저장 UI
 │       │   └── dialogs.py          # 공통 알림/선택 대화상자
 │       └── services/               # 비즈니스 로직 레이어
 │           ├── eml_parser.py       # EML 파일 파서 서비스
@@ -35,6 +40,9 @@ eml-viewer/
 ## 3. 핵심 기능 및 클래스/함수 위치
 - **애플리케이션 진입점**: `src/eml_viewer/app.py`의 `main()` 함수
 - **메인 GUI 화면**: `src/eml_viewer/gui/main_window.py`의 `MainWindow` 클래스
+- **메일 메타데이터 복사 UI**: `src/eml_viewer/gui/metadata_widgets.py`의 `CopyableLineEdit`
+- **본문 표시 및 확대/축소**: `src/eml_viewer/gui/message_widgets.py`의 `MessageBodyWidget`
+- **첨부파일 요약 및 저장 UI**: `src/eml_viewer/gui/attachment_widgets.py`의 `AttachmentPanel`
 - **업데이트 정보 확인**: `src/eml_viewer/services/update_service.py`의 `UpdateService.check_for_updates()`
 - **업데이트 파일 다운로드**: `src/eml_viewer/services/update_service.py`의 `UpdateService.download_installer()`
 - **백그라운드 다운로드 스레드**: `src/eml_viewer/gui/main_window.py`의 `DownloadThread` 클래스
@@ -42,10 +50,20 @@ eml-viewer/
 
 ## 4. 특수 주의사항 및 리스크
 - **최소 변경 원칙**: GUI와 비즈니스 로직(서비스)의 분리 상태를 훼손하지 않아야 합니다. `services` 패키지에서는 `PySide6` 라이브러리를 직접 호출하거나 가져오지 마십시오.
+- **향후 기능 확장 경계**: SMTP 발송, 번역, 요약, 검색, 계정/서버 설정은 먼저 `services` 또는 별도 설정 모델에 도메인 로직을 두고, `gui` 레이어는 화면 조합과 사용자 입력/표시만 담당하도록 유지합니다.
+- **설정 화면 확장 대비**: 기능이 늘어나면 `SettingsService`와 GUI 설정 패널을 분리해 관리하고, 메일 계정/SMTP 서버/포트/인증 정보 같은 민감 설정은 저장 방식과 노출 범위를 별도로 검토합니다.
 - **업데이트 재설치 잠금 방지**: 업데이트가 완료된 후 새 인스톨러를 시작할 때 파일 쓰기 거부 에러를 방지하기 위해 `MainWindow`는 `os.startfile(dest_path)` 호출 후 `self.close()` → `QApplication.quit()`을 통해 정상 종료 흐름(`closeEvent` 포함)을 거칩니다. 또한 인스톨러 스크립트에 `AppMutex=EmlViewerMutex`와 `CloseApplications=yes`를 활성화해 두었으며, 이를 지원하기 위해 `src/eml_viewer/app.py`의 시작 단계에서 Windows 네임드 뮤텍스(`EmlViewerMutex`)를 직접 생성하여 소유권을 가집니다.
 - **타임아웃 분리**: `UpdateService`는 API 확인용 타임아웃(`timeout_seconds=10`)과 대용량 파일 다운로드용 타임아웃(`download_timeout_seconds=300`)을 분리하여 관리합니다.
 
 ## 5. 변경 이력
+### 2026-06-26
+- **메일 읽기 UX 개선 1차 업데이트**:
+  - 제목/보낸 사람/받는 사람 필드에 `CopyableLineEdit`을 적용해 우측 복사 버튼과 상태바 `Copied` 피드백을 추가.
+  - 첨부파일 패널을 첨부가 없을 때 자동 숨김 처리하고, 첨부가 있을 때는 기본 접힘 요약(`Attachments N · size`)으로 표시하며 필요 시 펼쳐서 저장하도록 변경.
+  - 본문 영역에 `Ctrl+마우스휠`, `Ctrl+0`, `- / + / 100%` 기반의 50~200% 확대/축소 흐름을 추가.
+  - 앱 아이콘 리소스를 `assets/`에 추가하고 PyInstaller/Inno Setup/런타임 창 아이콘에 연결.
+  - GitHub Releases 404 응답 시 “배포 버전 없음” 단정 대신 저장소 접근권한/릴리스 공개 상태를 확인할 수 있는 문구로 개선.
+
 ### 2026-06-25
 - **업데이트 자동 다운로드 및 재설치 기능 구현**:
   - `UpdateService`에 청크 단위의 설치 파일 다운로드 및 취소(`threading.Event`), 실시간 콜백 지원 기능 추가.
@@ -62,4 +80,3 @@ eml-viewer/
   - `main_window.py`: 업데이트 후 종료 시 `sys.exit(0)` 대신 `self.close()` → `QApplication.quit()` 사용으로 `closeEvent` 정상 호출 보장 (창 설정 저장 누락 방지).
   - `update_service.py`: API 확인용 `timeout_seconds`(10초)와 다운로드용 `download_timeout_seconds`(300초) 분리로 대용량 파일 다운로드 시 타임아웃 방지.
   - `build_installer.ps1`: PowerShell 인코딩 문제를 방지하기 위해 한글 오류 메시지를 영문으로 변경.
-

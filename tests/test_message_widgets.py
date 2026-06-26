@@ -81,6 +81,28 @@ class MessageBodyWidgetTest(unittest.TestCase):
         self.assertNotIn("cid:second@example", prepared_html)
         widget.clear()
 
+    def test_zoom_controls_clamp_and_reset_percent(self) -> None:
+        widget = MessageBodyWidget()
+
+        widget.set_zoom_percent(25)
+        self.assertEqual(widget.zoom_percent, 50)
+        self.assertFalse(widget._zoom_out_button.isEnabled())
+
+        widget.set_zoom_percent(250)
+        self.assertEqual(widget.zoom_percent, 200)
+        self.assertFalse(widget._zoom_in_button.isEnabled())
+
+        widget.reset_zoom()
+        self.assertEqual(widget.zoom_percent, 100)
+        self.assertEqual(widget._zoom_label.text(), "100%")
+
+    def test_html_body_gets_zoom_wrapper(self) -> None:
+        widget = MessageBodyWidget()
+
+        widget.set_zoom_percent(150)
+
+        self.assertIn("font-size: 150%", widget._zoomed_html("<p>Hello</p>"))
+
 
 if __name__ == "__main__":
     unittest.main()
