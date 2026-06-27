@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -19,7 +19,25 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    from PySide6.QtWebEngineCore import (
+        QWebEnginePage,
+        QWebEngineProfile,
+        QWebEngineSettings,
+        QWebEngineUrlRequestInterceptor,
+    )
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except Exception:  # pragma: no cover - exercised only on minimal PySide installs.
+    QWebEnginePage = None
+    QWebEngineProfile = None
+    QWebEngineSettings = None
+    QWebEngineUrlRequestInterceptor = None
+    QWebEngineView = None
+
 from eml_viewer.models.email_data import ParsedEmail
+
+
+_TRANSPARENT_IMAGE_URI = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 
 
 class ZoomTextBrowser(QTextBrowser):
@@ -38,11 +56,63 @@ class ZoomTextBrowser(QTextBrowser):
         super().wheelEvent(event)
 
 
+if QWebEngineView is not None:
+
+    class ZoomWebEngineView(QWebEngineView):
+        """QWebEngineView with Ctrl+mouse-wheel zoom requests."""
+
+        zoom_delta_requested = Signal(int)
+
+        def wheelEvent(self, event) -> None:
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = event.angleDelta().y()
+                if delta:
+                    self.zoom_delta_requested.emit(1 if delta > 0 else -1)
+                    event.accept()
+                    return
+
+            super().wheelEvent(event)
+
+
+    class MailWebEnginePage(QWebEnginePage):
+        """Keeps message clicks out of the embedded HTML viewer."""
+
+        def acceptNavigationRequest(self, url, navigation_type, is_main_frame: bool) -> bool:
+            scheme = url.scheme().lower()
+            if is_main_frame and scheme in {"http", "https", "mailto"}:
+                if navigation_type == QWebEnginePage.NavigationType.NavigationTypeLinkClicked:
+                    QDesktopServices.openUrl(url)
+                return False
+            return super().acceptNavigationRequest(url, navigation_type, is_main_frame)
+
+
+    class RemoteContentInterceptor(QWebEngineUrlRequestInterceptor):
+        """Blocks remote message resources until the user explicitly allows them."""
+
+        def __init__(self, parent: QWidget | None = None) -> None:
+            super().__init__(parent)
+            self.allow_remote_content = False
+
+        def interceptRequest(self, info) -> None:
+            scheme = info.requestUrl().scheme().lower()
+            if scheme in {"http", "https"} and not self.allow_remote_content:
+                info.block(True)
+
+else:
+    ZoomWebEngineView = None
+    MailWebEnginePage = None
+    RemoteContentInterceptor = None
+
+
 class MessageBodyWidget(QWidget):
-    """Plain Text와 HTML 본문을 나눠서 보여주는 화면입니다."""
+    """Displays the plain text and HTML bodies of an email."""
 
     _resource_attr_pattern = re.compile(
         r"(?P<prefix>\b(?:src|background)\s*=\s*)(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    _srcset_attr_pattern = re.compile(
+        r"(?P<prefix>\bsrcset\s*=\s*)(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
         re.IGNORECASE | re.DOTALL,
     )
     _css_url_pattern = re.compile(r"url\((?P<quote>[\"']?)(?P<value>.*?)(?P=quote)\)", re.IGNORECASE)
@@ -62,10 +132,15 @@ class MessageBodyWidget(QWidget):
         self._current_email: ParsedEmail | None = None
         self._base_point_size = self.font().pointSizeF() or 10.0
         self._zoom_percent = 100
+        self._remote_images_allowed = False
 
         self._tabs = QTabWidget(self)
         self._plain_browser = ZoomTextBrowser(self)
-        self._html_browser = ZoomTextBrowser(self)
+        self._html_container = QWidget(self)
+        self._html_view = self._create_html_view()
+        self._html_browser = self._html_view
+        self._remote_notice_label = QLabel("외부 이미지를 차단했습니다.", self)
+        self._load_remote_images_button = QPushButton("외부 이미지 표시", self)
         self._zoom_out_button = QPushButton("-", self)
         self._zoom_in_button = QPushButton("+", self)
         self._zoom_reset_button = QPushButton("100%", self)
@@ -73,12 +148,17 @@ class MessageBodyWidget(QWidget):
         self._plain_notice_label = QLabel("HTML 본문에서 자동 생성한 텍스트입니다.", self)
 
         self._plain_browser.setOpenExternalLinks(False)
-        self._html_browser.setOpenExternalLinks(False)
         self._plain_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
-        self._html_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
+        if isinstance(self._html_view, ZoomTextBrowser):
+            self._html_view.setOpenExternalLinks(False)
+            self._html_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
+        elif QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
+            self._html_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
+
         self._zoom_out_button.clicked.connect(lambda: self._change_zoom_by_steps(-1))
         self._zoom_in_button.clicked.connect(lambda: self._change_zoom_by_steps(1))
         self._zoom_reset_button.clicked.connect(self.reset_zoom)
+        self._load_remote_images_button.clicked.connect(self._allow_remote_images)
 
         reset_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
         reset_shortcut.activated.connect(self.reset_zoom)
@@ -89,11 +169,23 @@ class MessageBodyWidget(QWidget):
         self._zoom_label.setMinimumWidth(46)
         self._zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        remote_layout = QHBoxLayout()
+        remote_layout.setContentsMargins(0, 0, 0, 0)
+        remote_layout.addWidget(self._remote_notice_label)
+        remote_layout.addWidget(self._load_remote_images_button)
+        remote_layout.addStretch(1)
+
+        html_layout = QVBoxLayout(self._html_container)
+        html_layout.setContentsMargins(0, 0, 0, 0)
+        html_layout.addLayout(remote_layout)
+        html_layout.addWidget(self._html_view)
+
         self._tabs.addTab(self._plain_browser, "Plain Text")
-        self._tabs.addTab(self._html_browser, "HTML")
-        self._tabs.currentChanged.connect(self._update_plain_notice_visibility)
+        self._tabs.addTab(self._html_container, "HTML")
+        self._tabs.currentChanged.connect(self._on_current_tab_changed)
         self._plain_notice_label.setVisible(False)
         self._plain_notice_label.setObjectName("plainNotice")
+        self._remote_notice_label.setObjectName("remoteNotice")
 
         zoom_layout = QHBoxLayout()
         zoom_layout.addStretch(1)
@@ -112,16 +204,18 @@ class MessageBodyWidget(QWidget):
 
     def clear(self) -> None:
         self._current_email = None
+        self._remote_images_allowed = False
         self._clear_inline_temp_dir()
         self._zoom_percent = 100
         self._apply_zoom_controls()
         self._plain_browser.setPlainText("EML 파일을 열면 본문이 여기에 표시됩니다.")
-        self._html_browser.setPlainText("HTML 본문이 여기에 표시됩니다.")
+        self._set_html_placeholder("HTML 본문이 여기에 표시됩니다.")
         self._tabs.setCurrentIndex(0)
-        self._update_plain_notice_visibility()
+        self._update_tab_dependent_controls()
 
     def set_email(self, email: ParsedEmail) -> None:
         self._current_email = email
+        self._remote_images_allowed = False
         self._render_email()
 
     @property
@@ -139,11 +233,13 @@ class MessageBodyWidget(QWidget):
 
         self._zoom_percent = percent
         self._apply_zoom_controls()
-        if self._current_email is not None:
-            self._render_email()
 
     def _change_zoom_by_steps(self, steps: int) -> None:
         self.set_zoom_percent(self._zoom_percent + (steps * 25))
+
+    def _allow_remote_images(self) -> None:
+        self._remote_images_allowed = True
+        self._render_email()
 
     def _render_email(self) -> None:
         if self._current_email is None:
@@ -154,59 +250,125 @@ class MessageBodyWidget(QWidget):
         html_text = email.html_body.strip()
 
         self._plain_browser.setPlainText(plain_text)
-        self._update_plain_notice_visibility()
         if html_text:
-            self._html_browser.setHtml(self._zoomed_html(self._prepare_html(email)))
+            prepared_html = self._prepare_html(email, allow_remote_resources=self._remote_images_allowed)
+            self._set_html_content(prepared_html)
             self._tabs.setCurrentIndex(1)
         else:
             self._clear_inline_temp_dir()
-            self._html_browser.setPlainText("HTML 본문이 없습니다.")
+            self._set_html_placeholder("HTML 본문이 없습니다.")
             self._tabs.setCurrentIndex(0)
-        self._update_plain_notice_visibility()
+        self._update_tab_dependent_controls()
 
     def _apply_zoom_controls(self) -> None:
         self._zoom_label.setText(f"{self._zoom_percent}%")
         self._zoom_out_button.setEnabled(self._zoom_percent > 50)
         self._zoom_in_button.setEnabled(self._zoom_percent < 200)
-        point_size = self._base_point_size * self._zoom_percent / 100
-        style = f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}"
-        self._plain_browser.setStyleSheet(style)
-        self._html_browser.setStyleSheet(style)
 
-    def _zoomed_html(self, html: str) -> str:
+        point_size = self._base_point_size * self._zoom_percent / 100
+        self._plain_browser.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
+        if isinstance(self._html_view, ZoomTextBrowser):
+            self._html_view.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
+        elif QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
+            self._html_view.setZoomFactor(self._zoom_percent / 100)
+
+    def _zoomed_html(self, html_body: str) -> str:
         style = f"<style>body {{ font-size: {self._zoom_percent}%; }}</style>"
-        if re.search(r"</head>", html, re.IGNORECASE):
-            return re.sub(r"</head>", f"{style}</head>", html, count=1, flags=re.IGNORECASE)
-        return f"{style}{html}"
+        if re.search(r"</head>", html_body, re.IGNORECASE):
+            return re.sub(r"</head>", f"{style}</head>", html_body, count=1, flags=re.IGNORECASE)
+        return f"{style}{html_body}"
+
+    def _on_current_tab_changed(self, _index: int) -> None:
+        self._update_tab_dependent_controls()
+
+    def _update_tab_dependent_controls(self) -> None:
+        self._update_plain_notice_visibility()
+        self._update_remote_controls()
 
     def _update_plain_notice_visibility(self) -> None:
         is_plain_tab = self._tabs.currentWidget() == self._plain_browser
         is_generated = bool(self._current_email and self._current_email.plain_body_generated)
         self._plain_notice_label.setVisible(is_plain_tab and is_generated)
 
-    def _prepare_html(self, email: ParsedEmail) -> str:
-        self._clear_inline_temp_dir()
-        if not email.inline_resources:
-            return email.html_body
+    def _update_remote_controls(self) -> None:
+        has_blocked_remote = bool(
+            self._current_email
+            and not self._remote_images_allowed
+            and self._has_remote_resource_reference(self._current_email.html_body)
+        )
+        self._remote_notice_label.setVisible(has_blocked_remote)
+        self._load_remote_images_button.setVisible(has_blocked_remote)
 
-        self._inline_temp_dir = tempfile.TemporaryDirectory(prefix="eml-viewer-inline-")
-        temp_root = Path(self._inline_temp_dir.name)
+    def _create_html_view(self) -> QWidget:
+        if QWebEngineView is None:
+            fallback = ZoomTextBrowser(self)
+            fallback.setPlainText("현재 설치 환경에서 Qt WebEngine을 사용할 수 없습니다.")
+            return fallback
+
+        view = ZoomWebEngineView(self)
+        profile = QWebEngineProfile(view)
+        self._remote_content_interceptor = RemoteContentInterceptor(view)
+        profile.setUrlRequestInterceptor(self._remote_content_interceptor)
+        page = MailWebEnginePage(profile, view)
+        settings = page.settings()
+        settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, False)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+        settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, False)
+        view.setPage(page)
+        return view
+
+    def _set_html_content(self, html_body: str) -> None:
+        if isinstance(self._html_view, ZoomTextBrowser):
+            self._html_view.setHtml(self._zoomed_html(html_body))
+            return
+
+        if QWebEngineView is None or not isinstance(self._html_view, QWebEngineView):
+            return
+
+        if hasattr(self, "_remote_content_interceptor"):
+            self._remote_content_interceptor.allow_remote_content = self._remote_images_allowed
+
+        page = self._html_view.page()
+        page.settings().setAttribute(
+            QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
+            self._remote_images_allowed,
+        )
+        self._html_view.setHtml(html_body, self._html_base_url())
+
+    def _set_html_placeholder(self, message: str) -> None:
+        if isinstance(self._html_view, ZoomTextBrowser):
+            self._html_view.setPlainText(message)
+            return
+        if QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
+            self._html_view.setHtml(f"<html><body><p>{html.escape(message)}</p></body></html>")
+
+    def _html_base_url(self) -> QUrl:
+        if self._inline_temp_dir is not None:
+            return QUrl.fromLocalFile(str(Path(self._inline_temp_dir.name)) + "/")
+        return QUrl("about:blank")
+
+    def _prepare_html(self, email: ParsedEmail, allow_remote_resources: bool = False) -> str:
+        self._clear_inline_temp_dir()
         resource_to_uri: dict[str, str] = {}
 
-        for index, resource in enumerate(email.inline_resources, start=1):
-            extension = mimetypes.guess_extension(resource.content_type) or ""
-            filename = self._safe_filename(resource.filename or f"inline-{index}{extension}")
-            if not Path(filename).suffix and extension:
-                filename = f"{filename}{extension}"
-            filename = f"{index}-{filename}"
-            target_path = temp_root / filename
-            target_path.write_bytes(resource.payload)
-            for key in self._resource_keys(resource.content_id):
-                resource_to_uri[key] = target_path.as_uri()
-            for key in self._resource_keys(resource.content_location):
-                resource_to_uri[key] = target_path.as_uri()
-            for key in self._resource_keys(resource.filename):
-                resource_to_uri[key] = target_path.as_uri()
+        if email.inline_resources:
+            self._inline_temp_dir = tempfile.TemporaryDirectory(prefix="eml-viewer-inline-")
+            temp_root = Path(self._inline_temp_dir.name)
+
+            for index, resource in enumerate(email.inline_resources, start=1):
+                extension = mimetypes.guess_extension(resource.content_type) or ""
+                filename = self._safe_filename(resource.filename or f"inline-{index}{extension}")
+                if not Path(filename).suffix and extension:
+                    filename = f"{filename}{extension}"
+                filename = f"{index}-{filename}"
+                target_path = temp_root / filename
+                target_path.write_bytes(resource.payload)
+                for key in self._resource_keys(resource.content_id):
+                    resource_to_uri[key] = target_path.as_uri()
+                for key in self._resource_keys(resource.content_location):
+                    resource_to_uri[key] = target_path.as_uri()
+                for key in self._resource_keys(resource.filename):
+                    resource_to_uri[key] = target_path.as_uri()
 
         unresolved_refs: set[str] = set()
 
@@ -219,22 +381,37 @@ class MessageBodyWidget(QWidget):
                 unresolved_refs.add(value)
             return None
 
+        def safe_resource_value(value: str) -> str | None:
+            if self._is_remote_url(value):
+                return value if allow_remote_resources else _TRANSPARENT_IMAGE_URI
+            return resolve_reference(value)
+
         def replace_attr(match: re.Match[str]) -> str:
             value = match.group("value")
-            uri = resolve_reference(value)
+            uri = safe_resource_value(value)
             if uri is None:
                 return match.group(0)
             return f"{match.group('prefix')}{match.group('quote')}{uri}{match.group('quote')}"
 
+        def replace_srcset(match: re.Match[str]) -> str:
+            value = match.group("value")
+            rewritten_items: list[str] = []
+            for source, descriptor in self._srcset_items(value):
+                uri = safe_resource_value(source) or source
+                rewritten_items.append(f"{uri} {descriptor}".strip())
+            rewritten = ", ".join(rewritten_items)
+            return f"{match.group('prefix')}{match.group('quote')}{rewritten}{match.group('quote')}"
+
         def replace_css_url(match: re.Match[str]) -> str:
             value = match.group("value")
-            uri = resolve_reference(value)
+            uri = safe_resource_value(value)
             if uri is None:
                 return match.group(0)
             quote = match.group("quote") or ""
             return f"url({quote}{uri}{quote})"
 
         prepared_html = self._resource_attr_pattern.sub(replace_attr, email.html_body)
+        prepared_html = self._srcset_attr_pattern.sub(replace_srcset, prepared_html)
         prepared_html = self._css_url_pattern.sub(replace_css_url, prepared_html)
         if unresolved_refs:
             prepared_html += self._unresolved_resource_notice(len(unresolved_refs))
@@ -273,6 +450,33 @@ class MessageBodyWidget(QWidget):
         }
         return {candidate.strip().strip("<>").lower() for candidate in candidates if candidate.strip()}
 
+    def _srcset_items(self, value: str) -> list[tuple[str, str]]:
+        items: list[tuple[str, str]] = []
+        for candidate in str(value).split(","):
+            candidate = candidate.strip()
+            if not candidate:
+                continue
+            parts = candidate.split(None, 1)
+            source = parts[0]
+            descriptor = parts[1] if len(parts) > 1 else ""
+            items.append((source, descriptor))
+        return items
+
+    def _has_remote_resource_reference(self, html_body: str) -> bool:
+        for match in self._resource_attr_pattern.finditer(html_body):
+            if self._is_remote_url(match.group("value")):
+                return True
+        for match in self._srcset_attr_pattern.finditer(html_body):
+            if any(self._is_remote_url(source) for source, _descriptor in self._srcset_items(match.group("value"))):
+                return True
+        for match in self._css_url_pattern.finditer(html_body):
+            if self._is_remote_url(match.group("value")):
+                return True
+        return False
+
+    def _is_remote_url(self, value: str) -> bool:
+        return html.unescape(str(value)).strip().lower().startswith(("http://", "https://"))
+
     def _looks_like_embedded_reference(self, value: str) -> bool:
         keys = self._resource_keys(value)
         if not keys:
@@ -284,7 +488,7 @@ class MessageBodyWidget(QWidget):
 
     def _unresolved_resource_notice(self, count: int) -> str:
         return (
-            "<hr><p style=\"color:#a15c00; font-size:90%;\">"
+            '<hr><p style="color:#a15c00; font-size:90%;">'
             f"표시하지 못한 임베드 이미지 {count}개가 있습니다."
             "</p>"
         )

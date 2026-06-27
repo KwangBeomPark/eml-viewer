@@ -193,6 +193,35 @@ class EmlParserTest(unittest.TestCase):
             self.assertEqual(parsed.inline_resources[0].content_location, "images/logo.png")
             self.assertEqual(parsed.attachments, [])
 
+    def test_srcset_image_is_treated_as_inline_resource(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "srcset_image.eml"
+            message = EmailMessage()
+            message["Subject"] = "Srcset image"
+            message["From"] = "sender@example.com"
+            message["To"] = "receiver@example.com"
+            message.set_content("plain", charset="utf-8")
+            message.add_alternative(
+                '<html><body><img srcset="cid:image001@example 1x, images/logo.png 2x"></body></html>',
+                subtype="html",
+            )
+            html_part = message.get_payload()[1]
+            html_part.add_related(
+                b"fake-png",
+                maintype="image",
+                subtype="png",
+                cid="<image001@example>",
+                disposition="attachment",
+                filename="image001.png",
+            )
+            path.write_bytes(message.as_bytes())
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(len(parsed.inline_resources), 1)
+            self.assertEqual(parsed.inline_resources[0].content_id, "image001@example")
+            self.assertEqual(parsed.attachments, [])
+
     def test_parse_korean_subject_and_attachment_filename(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "korean.eml"

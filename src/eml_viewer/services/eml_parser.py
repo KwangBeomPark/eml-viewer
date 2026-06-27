@@ -123,6 +123,9 @@ class _HtmlResourceReferenceExtractor(HTMLParser):
             name = name.lower()
             if name in {"src", "background"}:
                 self.references.update(_resource_keys(value))
+            elif name == "srcset":
+                for srcset_value in _srcset_values(value):
+                    self.references.update(_resource_keys(srcset_value))
             elif name == "style":
                 for match in self._url_pattern.finditer(value):
                     self.references.update(_resource_keys(match.group("value")))
@@ -393,3 +396,13 @@ def _resource_keys(value: str) -> set[str]:
         Path(parsed_path.replace("\\", "/")).name,
     }
     return {candidate.strip().strip("<>").lower() for candidate in candidates if candidate.strip()}
+
+
+def _srcset_values(value: str) -> list[str]:
+    values: list[str] = []
+    for candidate in str(value).split(","):
+        candidate = candidate.strip()
+        if not candidate:
+            continue
+        values.append(candidate.split()[0])
+    return values

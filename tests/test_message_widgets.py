@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --disable-software-rasterizer --no-sandbox")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from PySide6.QtWidgets import QApplication
@@ -107,7 +108,7 @@ class MessageBodyWidgetTest(unittest.TestCase):
         self.assertNotIn('src="images/logo.png"', prepared_html)
         widget.clear()
 
-    def test_prepare_html_keeps_remote_images_unresolved(self) -> None:
+    def test_prepare_html_blocks_remote_images_by_default(self) -> None:
         widget = MessageBodyWidget()
         email = ParsedEmail(
             subject="",
@@ -121,7 +122,83 @@ class MessageBodyWidgetTest(unittest.TestCase):
 
         prepared_html = widget._prepare_html(email)
 
+        self.assertNotIn("https://example.com/logo.png", prepared_html)
+        self.assertIn("data:image/gif", prepared_html)
+
+    def test_prepare_html_preserves_remote_images_when_allowed(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="",
+            html_body='<html><body><img src="https://example.com/logo.png"></body></html>',
+            inline_resources=[],
+        )
+
+        prepared_html = widget._prepare_html(email, allow_remote_resources=True)
+
         self.assertIn("https://example.com/logo.png", prepared_html)
+
+    def test_prepare_html_replaces_css_url_reference(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="",
+            html_body='<html><body><div style="background-image:url(cid:bg@example)"></div></body></html>',
+            inline_resources=[
+                InlineResource(
+                    content_id="bg@example",
+                    filename="bg.png",
+                    content_type="image/png",
+                    payload=b"fake-png",
+                )
+            ],
+        )
+
+        prepared_html = widget._prepare_html(email)
+
+        self.assertIn("file:///", prepared_html)
+        self.assertNotIn("cid:bg@example", prepared_html)
+        widget.clear()
+
+    def test_prepare_html_replaces_srcset_reference(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="",
+            html_body='<html><body><img srcset="cid:small@example 1x, images/large.png 2x"></body></html>',
+            inline_resources=[
+                InlineResource(
+                    content_id="small@example",
+                    filename="small.png",
+                    content_type="image/png",
+                    payload=b"small",
+                ),
+                InlineResource(
+                    content_id="",
+                    filename="large.png",
+                    content_type="image/png",
+                    payload=b"large",
+                    content_location="images/large.png",
+                ),
+            ],
+        )
+
+        prepared_html = widget._prepare_html(email)
+
+        self.assertIn("1-small.png", prepared_html)
+        self.assertIn("2-large.png", prepared_html)
+        self.assertNotIn("cid:small@example", prepared_html)
+        self.assertNotIn("images/large.png", prepared_html)
+        widget.clear()
 
     def test_zoom_controls_clamp_and_reset_percent(self) -> None:
         widget = MessageBodyWidget()
@@ -144,6 +221,24 @@ class MessageBodyWidgetTest(unittest.TestCase):
         widget.set_zoom_percent(150)
 
         self.assertIn("font-size: 150%", widget._zoomed_html("<p>Hello</p>"))
+
+    def test_remote_controls_appear_for_blocked_remote_images(self) -> None:
+        widget = MessageBodyWidget()
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="plain",
+            html_body='<html><body><img src="https://example.com/logo.png"></body></html>',
+            inline_resources=[],
+        )
+
+        widget.set_email(email)
+
+        self.assertFalse(widget._load_remote_images_button.isHidden())
+        widget._allow_remote_images()
+        self.assertTrue(widget._load_remote_images_button.isHidden())
 
 
 if __name__ == "__main__":

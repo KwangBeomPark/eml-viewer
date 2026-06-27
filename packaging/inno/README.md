@@ -17,7 +17,7 @@
 결과 파일:
 
 ```text
-installer\EmlViewerSetup-0.1.0.exe
+installer\EmlViewerSetup-<version>.exe
 ```
 
 설치 파일은 `.eml` 더블클릭 연결을 선택 항목으로 제공합니다.

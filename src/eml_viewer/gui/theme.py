@@ -49,7 +49,7 @@ def _dark_style_sheet() -> str:
         left: 8px;
         padding: 0 4px;
     }
-    QLineEdit, QTextBrowser, QTableWidget, QComboBox {
+    QLineEdit, QTextBrowser, QWebEngineView, QTableWidget, QComboBox {
         background: #181a1d;
         color: #eeeeee;
         border: 1px solid #4b4f58;
@@ -66,6 +66,9 @@ def _dark_style_sheet() -> str:
         border-color: #3d4148;
     }
     QLabel#plainNotice {
+        color: #f0c36a;
+    }
+    QLabel#remoteNotice {
         color: #f0c36a;
     }
     """

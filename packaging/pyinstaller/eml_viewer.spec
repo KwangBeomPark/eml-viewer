@@ -16,11 +16,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        "PySide6.QtWebEngineCore",
-        "PySide6.QtWebEngineWidgets",
-        "PySide6.QtWebEngineQuick",
-    ],
+    excludes=[],
     noarchive=False,
     optimize=0,
 )
