@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from eml_viewer import __version__
+from eml_viewer.gui.i18n import tr
 
 
 class UpdateCheckError(Exception):
@@ -67,19 +68,17 @@ class UpdateService:
                 payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             if exc.code == 404:
-                raise UpdateCheckError(
-                    "업데이트 배포 정보를 찾을 수 없습니다. GitHub Releases 공개 여부와 저장소 접근 권한을 확인해 주세요."
-                ) from exc
-            raise UpdateCheckError(f"업데이트 정보를 가져오지 못했습니다. HTTP {exc.code}") from exc
+                raise UpdateCheckError(tr("update.no_release")) from exc
+            raise UpdateCheckError(tr("update.request_failed", code=exc.code)) from exc
         except Exception as exc:
-            raise UpdateCheckError("업데이트 정보를 가져오지 못했습니다. 인터넷 연결을 확인해 주세요.") from exc
+            raise UpdateCheckError(tr("update.request_failed_connection")) from exc
 
         if not isinstance(payload, dict):
-            raise UpdateCheckError("최신 버전 정보를 읽을 수 없습니다.")
+            raise UpdateCheckError(tr("update.read_failed"))
 
         latest_version = _normalize_version(str(payload.get("tag_name", "")))
         if not latest_version:
-            raise UpdateCheckError("최신 버전 정보를 읽을 수 없습니다.")
+            raise UpdateCheckError(tr("update.read_failed"))
 
         release_url = str(payload.get("html_url", ""))
         download_url = self._installer_download_url(payload) or release_url or None
@@ -137,7 +136,7 @@ class UpdateService:
                 with os.fdopen(fd, "wb") as f:
                     while True:
                         if cancel_event is not None and cancel_event.is_set():
-                            raise OperationCanceled("다운로드가 취소되었습니다.")
+                            raise OperationCanceled(tr("update.download.canceled"))
 
                         buffer = response.read(block_size)
                         if not buffer:
@@ -150,7 +149,7 @@ class UpdateService:
                             progress_callback(downloaded, total_size)
 
                 if downloaded == 0:
-                    raise UpdateDownloadError("다운로드된 설치 파일이 비어 있습니다.")
+                    raise UpdateDownloadError(tr("update.download_empty"))
 
                 os.replace(temp_path, destination)
                 temp_path = None
@@ -161,7 +160,7 @@ class UpdateService:
                 raise
             if isinstance(exc, UpdateDownloadError):
                 raise
-            raise UpdateDownloadError(f"다운로드 중 오류가 발생했습니다: {exc}") from exc
+            raise UpdateDownloadError(tr("update.download_error", error=exc)) from exc
 
 
 def _normalize_version(version: str) -> str:

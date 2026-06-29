@@ -4,13 +4,15 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox, QWidget
 
+from eml_viewer.gui.i18n import tr
+
 
 def select_eml_file(parent: QWidget, start_dir: Path | None = None) -> Path | None:
     filename, _ = QFileDialog.getOpenFileName(
         parent,
-        "EML 파일 열기",
+        tr("dialog.open_eml.title"),
         str(start_dir or Path.home()),
-        "EML 파일 (*.eml);;모든 파일 (*.*)",
+        tr("dialog.open_eml.filter"),
     )
     return Path(filename) if filename else None
 
@@ -18,9 +20,9 @@ def select_eml_file(parent: QWidget, start_dir: Path | None = None) -> Path | No
 def select_attachment_destination(parent: QWidget, default_filename: str) -> Path | None:
     filename, _ = QFileDialog.getSaveFileName(
         parent,
-        "첨부파일 저장",
+        tr("dialog.save_attachment.title"),
         str(Path.home() / default_filename),
-        "모든 파일 (*.*)",
+        tr("dialog.save_attachment.filter"),
     )
     return Path(filename) if filename else None
 
@@ -28,7 +30,7 @@ def select_attachment_destination(parent: QWidget, default_filename: str) -> Pat
 def select_attachment_directory(parent: QWidget) -> Path | None:
     directory = QFileDialog.getExistingDirectory(
         parent,
-        "첨부파일 저장 폴더 선택",
+        tr("dialog.save_attachment_dir.title"),
         str(Path.home()),
     )
     return Path(directory) if directory else None
@@ -37,8 +39,8 @@ def select_attachment_directory(parent: QWidget) -> Path | None:
 def ask_overwrite(parent: QWidget, path: Path) -> bool:
     result = QMessageBox.question(
         parent,
-        "파일 덮어쓰기 확인",
-        f"이미 같은 이름의 파일이 있습니다.\n\n{path}\n\n덮어쓸까요?",
+        tr("dialog.overwrite.title"),
+        tr("dialog.overwrite.body", path=path),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
     )
@@ -49,7 +51,7 @@ def ask_execute_file_operation(parent: QWidget, title: str, preview_message: str
     result = QMessageBox.question(
         parent,
         title,
-        f"아래 작업을 실행할까요?\n\n{preview_message}",
+        tr("dialog.execute.body", preview_message=preview_message),
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
     )

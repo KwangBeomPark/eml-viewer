@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from eml_viewer.gui.i18n import tr
 from eml_viewer.models.attachment_data import AttachmentInfo
 from eml_viewer.services.eml_parser import EmlParser
 from eml_viewer.services.file_operation_service import FileOperationPreview, FileOperationService
@@ -31,7 +32,7 @@ class AttachmentService:
         destination_path: str | Path,
     ) -> FileOperationPreview:
         return self._file_operation_service.build_write_preview(
-            source_label=f"첨부파일: {attachment.filename}",
+            source_label=tr("attachment.source_label", filename=attachment.filename),
             destination_path=destination_path,
             action="save_attachment",
         )
@@ -57,7 +58,7 @@ class AttachmentService:
     ) -> list[FileOperationPreview]:
         return [
             self._file_operation_service.build_write_preview(
-                source_label=f"첨부파일: {attachment.filename}",
+                source_label=tr("attachment.source_label", filename=attachment.filename),
                 destination_path=destination,
                 action="save_attachment",
             )

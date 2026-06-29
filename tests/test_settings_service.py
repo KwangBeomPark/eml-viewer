@@ -23,6 +23,9 @@ class SettingsServiceTest(unittest.TestCase):
                 window_height=600,
                 language="en",
                 theme="dark",
+                smtp_host="smtp.example.com",
+                smtp_sender="sender@example.com",
+                smtp_port=2525,
             )
 
             service.save_settings(expected)
@@ -43,13 +46,24 @@ class SettingsServiceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings_path = Path(temp_dir) / "settings.json"
             service = SettingsService(settings_path)
-            service.save_settings(AppSettings(language="en", theme="dark"))
+            service.save_settings(
+                AppSettings(
+                    language="en",
+                    theme="dark",
+                    smtp_host="smtp.example.com",
+                    smtp_sender="sender@example.com",
+                    smtp_port=2525,
+                )
+            )
 
             service.save_window_geometry(x=1, y=2, width=3, height=4)
             actual = service.load_settings()
 
             self.assertEqual(actual.language, "en")
             self.assertEqual(actual.theme, "dark")
+            self.assertEqual(actual.smtp_host, "smtp.example.com")
+            self.assertEqual(actual.smtp_sender, "sender@example.com")
+            self.assertEqual(actual.smtp_port, 2525)
             self.assertEqual(actual.window_x, 1)
             self.assertEqual(actual.window_height, 4)
 
@@ -58,6 +72,11 @@ class SettingsServiceTest(unittest.TestCase):
 
         self.assertEqual(actual.language, "ko")
         self.assertEqual(actual.theme, "system")
+
+    def test_invalid_smtp_port_falls_back_to_default(self) -> None:
+        actual = AppSettings.from_dict({"smtp_port": 999999})
+
+        self.assertEqual(actual.smtp_port, 25)
 
 
 if __name__ == "__main__":

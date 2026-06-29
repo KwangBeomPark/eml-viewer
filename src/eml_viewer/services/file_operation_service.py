@@ -6,6 +6,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from eml_viewer.gui.i18n import tr
+
 
 @dataclass(frozen=True)
 class FileOperationPreview:
@@ -18,7 +20,7 @@ class FileOperationPreview:
 
     @property
     def message(self) -> str:
-        overwrite_text = "기존 파일을 덮어씁니다." if self.will_overwrite else "새 파일로 저장합니다."
+        overwrite_text = tr("file_operation.overwrite") if self.will_overwrite else tr("file_operation.new_file")
         return f"{self.source_label}\n-> {self.destination}\n\n{overwrite_text}"
 
 
@@ -52,9 +54,9 @@ class FileOperationService:
     def write_bytes(self, destination_path: str | Path, data: bytes, overwrite: bool = False) -> Path:
         destination = Path(destination_path)
         if destination.exists() and destination.is_dir():
-            raise IsADirectoryError(f"폴더에는 저장할 수 없습니다: {destination}")
+            raise IsADirectoryError(tr("file_operation.write_to_directory", destination=destination))
         if destination.exists() and not overwrite:
-            raise FileExistsError(f"이미 같은 이름의 파일이 있습니다: {destination}")
+            raise FileExistsError(f"{tr('error.file_exists')}: {destination}")
 
         destination.parent.mkdir(parents=True, exist_ok=True)
 

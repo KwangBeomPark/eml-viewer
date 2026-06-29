@@ -10,6 +10,7 @@ from urllib.parse import unquote, urlparse
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -35,6 +36,7 @@ except Exception:  # pragma: no cover - exercised only on minimal PySide install
     QWebEngineView = None
 
 from eml_viewer.models.email_data import ParsedEmail
+from eml_viewer.gui.i18n import current_language, tr
 
 
 _TRANSPARENT_IMAGE_URI = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
@@ -107,6 +109,8 @@ else:
 class MessageBodyWidget(QWidget):
     """Displays the plain text and HTML bodies of an email."""
 
+    translate_requested = Signal(str, str)
+
     _resource_attr_pattern = re.compile(
         r"(?P<prefix>\b(?:src|background)\s*=\s*)(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
         re.IGNORECASE | re.DOTALL,
@@ -136,19 +140,24 @@ class MessageBodyWidget(QWidget):
 
         self._tabs = QTabWidget(self)
         self._plain_browser = ZoomTextBrowser(self)
+        self._translation_browser = ZoomTextBrowser(self)
         self._html_container = QWidget(self)
         self._html_view = self._create_html_view()
         self._html_browser = self._html_view
-        self._remote_notice_label = QLabel("외부 이미지를 차단했습니다.", self)
-        self._load_remote_images_button = QPushButton("외부 이미지 표시", self)
+        self._remote_notice_label = QLabel(self)
+        self._load_remote_images_button = QPushButton(self)
         self._zoom_out_button = QPushButton("-", self)
         self._zoom_in_button = QPushButton("+", self)
         self._zoom_reset_button = QPushButton("100%", self)
         self._zoom_label = QLabel("100%", self)
-        self._plain_notice_label = QLabel("HTML 본문에서 자동 생성한 텍스트입니다.", self)
+        self._plain_notice_label = QLabel(self)
+        self._translate_button = QPushButton(self)
+        self._target_language_combo = QComboBox(self)
 
         self._plain_browser.setOpenExternalLinks(False)
+        self._translation_browser.setOpenExternalLinks(False)
         self._plain_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
+        self._translation_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
         if isinstance(self._html_view, ZoomTextBrowser):
             self._html_view.setOpenExternalLinks(False)
             self._html_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
@@ -159,6 +168,7 @@ class MessageBodyWidget(QWidget):
         self._zoom_in_button.clicked.connect(lambda: self._change_zoom_by_steps(1))
         self._zoom_reset_button.clicked.connect(self.reset_zoom)
         self._load_remote_images_button.clicked.connect(self._allow_remote_images)
+        self._translate_button.clicked.connect(self._emit_translate_requested)
 
         reset_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
         reset_shortcut.activated.connect(self.reset_zoom)
@@ -180,14 +190,17 @@ class MessageBodyWidget(QWidget):
         html_layout.addLayout(remote_layout)
         html_layout.addWidget(self._html_view)
 
-        self._tabs.addTab(self._plain_browser, "Plain Text")
-        self._tabs.addTab(self._html_container, "HTML")
+        self._tabs.addTab(self._plain_browser, "")
+        self._tabs.addTab(self._html_container, "")
+        self._tabs.addTab(self._translation_browser, "")
         self._tabs.currentChanged.connect(self._on_current_tab_changed)
         self._plain_notice_label.setVisible(False)
         self._plain_notice_label.setObjectName("plainNotice")
         self._remote_notice_label.setObjectName("remoteNotice")
 
         zoom_layout = QHBoxLayout()
+        zoom_layout.addWidget(self._target_language_combo)
+        zoom_layout.addWidget(self._translate_button)
         zoom_layout.addStretch(1)
         zoom_layout.addWidget(self._zoom_out_button)
         zoom_layout.addWidget(self._zoom_label)
@@ -200,6 +213,7 @@ class MessageBodyWidget(QWidget):
         layout.addWidget(self._plain_notice_label)
         layout.addWidget(self._tabs)
 
+        self.retranslate_ui()
         self.clear()
 
     def clear(self) -> None:
@@ -208,15 +222,35 @@ class MessageBodyWidget(QWidget):
         self._clear_inline_temp_dir()
         self._zoom_percent = 100
         self._apply_zoom_controls()
-        self._plain_browser.setPlainText("EML 파일을 열면 본문이 여기에 표시됩니다.")
-        self._set_html_placeholder("HTML 본문이 여기에 표시됩니다.")
+        self._plain_browser.setPlainText(tr("message.plain_placeholder"))
+        self._translation_browser.clear()
+        self._set_html_placeholder(tr("message.html_placeholder"))
         self._tabs.setCurrentIndex(0)
         self._update_tab_dependent_controls()
+        self._update_translation_controls()
+
+    def retranslate_ui(self) -> None:
+        self._remote_notice_label.setText(tr("message.remote_blocked"))
+        self._load_remote_images_button.setText(tr("message.remote_show"))
+        self._plain_notice_label.setText(tr("message.generated_plain_notice"))
+        self._translate_button.setText(tr("translation.button"))
+        self._set_target_language_items()
+        self._tabs.setTabText(0, "Plain Text")
+        self._tabs.setTabText(1, "HTML")
+        self._tabs.setTabText(2, tr("translation.tab"))
+        if self._current_email is None:
+            self._plain_browser.setPlainText(tr("message.plain_placeholder"))
+            self._set_html_placeholder(tr("message.html_placeholder"))
+        else:
+            self._render_email()
+        self._update_translation_controls()
 
     def set_email(self, email: ParsedEmail) -> None:
         self._current_email = email
         self._remote_images_allowed = False
+        self._translation_browser.clear()
         self._render_email()
+        self._update_translation_controls()
 
     @property
     def zoom_percent(self) -> int:
@@ -246,7 +280,7 @@ class MessageBodyWidget(QWidget):
             return
 
         email = self._current_email
-        plain_text = email.plain_body.strip() or "Plain Text 본문이 없습니다."
+        plain_text = email.plain_body.strip() or tr("message.no_plain")
         html_text = email.html_body.strip()
 
         self._plain_browser.setPlainText(plain_text)
@@ -256,7 +290,7 @@ class MessageBodyWidget(QWidget):
             self._tabs.setCurrentIndex(1)
         else:
             self._clear_inline_temp_dir()
-            self._set_html_placeholder("HTML 본문이 없습니다.")
+            self._set_html_placeholder(tr("message.html_empty"))
             self._tabs.setCurrentIndex(0)
         self._update_tab_dependent_controls()
 
@@ -267,6 +301,7 @@ class MessageBodyWidget(QWidget):
 
         point_size = self._base_point_size * self._zoom_percent / 100
         self._plain_browser.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
+        self._translation_browser.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
         if isinstance(self._html_view, ZoomTextBrowser):
             self._html_view.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
         elif QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
@@ -299,10 +334,54 @@ class MessageBodyWidget(QWidget):
         self._remote_notice_label.setVisible(has_blocked_remote)
         self._load_remote_images_button.setVisible(has_blocked_remote)
 
+    def source_text_for_translation(self) -> str:
+        if self._current_email is None:
+            return ""
+        return self._current_email.plain_body.strip()
+
+    def selected_translation_language(self) -> str:
+        return str(self._target_language_combo.currentData() or "ko")
+
+    def set_translation_enabled(self, enabled: bool) -> None:
+        self._translate_button.setEnabled(enabled and bool(self.source_text_for_translation()))
+        self._target_language_combo.setEnabled(enabled)
+
+    def set_translation_result(self, text: str) -> None:
+        self._translation_browser.setPlainText(text)
+        self._tabs.setCurrentWidget(self._translation_browser)
+        self._update_translation_controls()
+
+    def _emit_translate_requested(self) -> None:
+        source_text = self.source_text_for_translation()
+        if source_text:
+            self.translate_requested.emit(source_text, self.selected_translation_language())
+
+    def _update_translation_controls(self) -> None:
+        self._translate_button.setEnabled(bool(self.source_text_for_translation()))
+        self._target_language_combo.setEnabled(True)
+
+    def _set_target_language_items(self) -> None:
+        current = (
+            self.selected_translation_language()
+            if self._target_language_combo.count()
+            else (current_language() if current_language() in {"ko", "en"} else "ko")
+        )
+        if current not in {"ko", "en", "pl"}:
+            current = current_language() if current_language() in {"ko", "en"} else "ko"
+
+        self._target_language_combo.blockSignals(True)
+        self._target_language_combo.clear()
+        self._target_language_combo.addItem(tr("translation.language.ko"), "ko")
+        self._target_language_combo.addItem(tr("translation.language.en"), "en")
+        self._target_language_combo.addItem(tr("translation.language.pl"), "pl")
+        index = self._target_language_combo.findData(current)
+        self._target_language_combo.setCurrentIndex(index if index >= 0 else 0)
+        self._target_language_combo.blockSignals(False)
+
     def _create_html_view(self) -> QWidget:
         if QWebEngineView is None:
             fallback = ZoomTextBrowser(self)
-            fallback.setPlainText("현재 설치 환경에서 Qt WebEngine을 사용할 수 없습니다.")
+            fallback.setPlainText(tr("message.webengine_unavailable"))
             return fallback
 
         view = ZoomWebEngineView(self)
@@ -333,6 +412,7 @@ class MessageBodyWidget(QWidget):
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
             self._remote_images_allowed,
         )
+        self._html_view.setZoomFactor(self._zoom_percent / 100)
         self._html_view.setHtml(html_body, self._html_base_url())
 
     def _set_html_placeholder(self, message: str) -> None:
@@ -340,6 +420,7 @@ class MessageBodyWidget(QWidget):
             self._html_view.setPlainText(message)
             return
         if QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
+            self._html_view.setZoomFactor(self._zoom_percent / 100)
             self._html_view.setHtml(f"<html><body><p>{html.escape(message)}</p></body></html>")
 
     def _html_base_url(self) -> QUrl:
@@ -489,7 +570,7 @@ class MessageBodyWidget(QWidget):
     def _unresolved_resource_notice(self, count: int) -> str:
         return (
             '<hr><p style="color:#a15c00; font-size:90%;">'
-            f"표시하지 못한 임베드 이미지 {count}개가 있습니다."
+            f"{tr('message.unresolved_images', count=count)}"
             "</p>"
         )
 

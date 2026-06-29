@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 )
 
 from eml_viewer.models.attachment_data import AttachmentInfo
+from eml_viewer.gui.i18n import tr
 
 
 class AttachmentPanel(QWidget):
@@ -24,12 +25,12 @@ class AttachmentPanel(QWidget):
         self._attachments: list[AttachmentInfo] = []
         self._expanded = False
 
-        self._title_label = QLabel("첨부파일", self)
-        self._toggle_button = QPushButton("Expand", self)
+        self._title_label = QLabel(self)
+        self._toggle_button = QPushButton(self)
         self._table = QTableWidget(0, 4, self)
-        self._save_button = QPushButton("Save selected", self)
+        self._save_button = QPushButton(self)
 
-        self._table.setHorizontalHeaderLabels(["", "파일명", "종류", "크기"])
+        self.retranslate_ui()
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -51,6 +52,14 @@ class AttachmentPanel(QWidget):
         layout.addLayout(header_layout)
         layout.addWidget(self._table)
         self.setVisible(False)
+
+    def retranslate_ui(self) -> None:
+        self._table.setHorizontalHeaderLabels(
+            ["", tr("attachment.table.filename"), tr("attachment.table.kind"), tr("attachment.table.size")]
+        )
+        self._save_button.setText(tr("button.save_selected"))
+        self._update_summary()
+        self._toggle_button.setText(tr("button.collapse") if self._expanded else tr("button.expand"))
 
     def set_attachments(self, attachments: list[AttachmentInfo]) -> None:
         self._attachments = list(attachments)
@@ -118,7 +127,7 @@ class AttachmentPanel(QWidget):
         selected_count = len(self.selected_attachments()) if count else 0
         total_size = sum(max(0, attachment.size) for attachment in self._attachments)
         self._title_label.setText(
-            f"Attachments {count} · {self._display_size(total_size)} · Selected {selected_count}"
+            tr("attachment.title", count=count, size=self._display_size(total_size), selected_count=selected_count)
         )
 
     def _apply_expanded_state(self) -> None:
@@ -127,7 +136,7 @@ class AttachmentPanel(QWidget):
         self._table.setVisible(has_attachments and self._expanded)
         self._save_button.setVisible(has_attachments and self._expanded)
         self._toggle_button.setVisible(has_attachments)
-        self._toggle_button.setText("Collapse" if self._expanded else "Expand")
+        self._toggle_button.setText(tr("button.collapse") if self._expanded else tr("button.expand"))
 
         if not has_attachments:
             self.setMaximumHeight(0)

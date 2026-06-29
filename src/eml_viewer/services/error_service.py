@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from eml_viewer.gui.i18n import tr
 from eml_viewer.services.eml_parser import EmlParseError
 
 
@@ -9,13 +10,13 @@ class ErrorService:
     @staticmethod
     def to_user_message(error: Exception) -> str:
         if isinstance(error, FileNotFoundError):
-            return "선택한 파일을 찾을 수 없습니다. 파일 위치를 다시 확인해 주세요."
+            return tr("error.file_not_found")
         if isinstance(error, PermissionError):
-            return "파일을 읽거나 저장할 권한이 없습니다. 다른 폴더를 선택해 주세요."
+            return tr("error.permission")
         if isinstance(error, FileExistsError):
-            return "이미 같은 이름의 파일이 있습니다."
+            return tr("error.file_exists")
         if isinstance(error, IsADirectoryError):
-            return "파일이 아니라 폴더가 선택되었습니다. 저장할 파일 이름을 선택해 주세요."
+            return tr("error.directory_selected")
         if isinstance(error, EmlParseError):
             return str(error)
-        return f"작업 중 오류가 발생했습니다.\n\n{error}"
+        return tr("error.generic", error=error)

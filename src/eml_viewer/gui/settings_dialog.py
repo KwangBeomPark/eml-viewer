@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
 
 from eml_viewer.gui.i18n import tr
 from eml_viewer.models.app_settings import AppSettings
@@ -22,9 +22,22 @@ class SettingsDialog(QDialog):
         self._theme_combo.addItem(tr("theme.dark"), "dark")
         self._set_combo_value(self._theme_combo, settings.theme)
 
+        self._smtp_host_edit = QLineEdit(settings.smtp_host, self)
+        self._smtp_host_edit.setPlaceholderText("smtp.example.com")
+
+        self._smtp_sender_edit = QLineEdit(settings.smtp_sender, self)
+        self._smtp_sender_edit.setPlaceholderText("sender@example.com")
+
+        self._smtp_port_spin = QSpinBox(self)
+        self._smtp_port_spin.setRange(1, 65535)
+        self._smtp_port_spin.setValue(settings.smtp_port)
+
         form_layout = QFormLayout()
         form_layout.addRow(tr("settings.language"), self._language_combo)
         form_layout.addRow(tr("settings.theme"), self._theme_combo)
+        form_layout.addRow(tr("settings.smtp_host"), self._smtp_host_edit)
+        form_layout.addRow(tr("settings.smtp_sender"), self._smtp_sender_edit)
+        form_layout.addRow(tr("settings.smtp_port"), self._smtp_port_spin)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("settings.ok"))
@@ -43,6 +56,18 @@ class SettingsDialog(QDialog):
     @property
     def theme(self) -> str:
         return str(self._theme_combo.currentData())
+
+    @property
+    def smtp_host(self) -> str:
+        return self._smtp_host_edit.text().strip()
+
+    @property
+    def smtp_sender(self) -> str:
+        return self._smtp_sender_edit.text().strip()
+
+    @property
+    def smtp_port(self) -> int:
+        return int(self._smtp_port_spin.value())
 
     def _set_combo_value(self, combo: QComboBox, value: str) -> None:
         index = combo.findData(value)

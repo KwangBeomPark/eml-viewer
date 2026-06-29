@@ -13,6 +13,9 @@ class AppSettings:
     window_height: int = 760
     language: str = "ko"
     theme: str = "system"
+    smtp_host: str = ""
+    smtp_sender: str = ""
+    smtp_port: int = 25
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
@@ -31,6 +34,9 @@ class AppSettings:
             window_height=int(data.get("window_height", cls.window_height)),
             language=language,
             theme=theme,
+            smtp_host=str(data.get("smtp_host", cls.smtp_host)).strip(),
+            smtp_sender=str(data.get("smtp_sender", cls.smtp_sender)).strip(),
+            smtp_port=cls._safe_port(data.get("smtp_port", cls.smtp_port)),
         )
 
     def to_dict(self) -> dict[str, int | str]:
@@ -41,4 +47,15 @@ class AppSettings:
             "window_height": self.window_height,
             "language": self.language,
             "theme": self.theme,
+            "smtp_host": self.smtp_host,
+            "smtp_sender": self.smtp_sender,
+            "smtp_port": self.smtp_port,
         }
+
+    @staticmethod
+    def _safe_port(value: object) -> int:
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            return AppSettings.smtp_port
+        return port if 1 <= port <= 65535 else AppSettings.smtp_port

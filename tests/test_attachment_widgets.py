@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from eml_viewer.gui.i18n import set_language
 from eml_viewer.gui.attachment_widgets import AttachmentPanel
 from eml_viewer.models.attachment_data import AttachmentInfo
 
@@ -19,6 +20,12 @@ class AttachmentPanelTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self) -> None:
+        set_language("en")
+
+    def tearDown(self) -> None:
+        set_language("ko")
 
     def test_panel_hides_when_no_attachments(self) -> None:
         panel = AttachmentPanel()

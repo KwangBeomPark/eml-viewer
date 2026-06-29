@@ -11,7 +11,10 @@ a = Analysis(
     [str(src_root / "eml_viewer" / "__main__.py")],
     pathex=[str(src_root)],
     binaries=[],
-    datas=[(str(app_icon), "assets")],
+    datas=[
+        (str(app_icon), "assets"),
+        (str(src_root / "eml_viewer" / "i18n" / "locales"), "eml_viewer/i18n/locales"),
+    ],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

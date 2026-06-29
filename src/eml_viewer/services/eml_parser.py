@@ -12,6 +12,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from eml_viewer.gui.i18n import tr
 from eml_viewer.models.attachment_data import AttachmentInfo, InlineResource
 from eml_viewer.models.email_data import ParsedEmail
 
@@ -220,23 +221,23 @@ class EmlParser:
 
             current_index += 1
 
-        raise EmlParseError("선택한 첨부파일을 찾을 수 없습니다.")
+        raise EmlParseError(tr("parse.attachment_not_found"))
 
     def _load_message(self, path: Path) -> EmailMessage | Message:
         if not path.exists():
-            raise FileNotFoundError(f"파일을 찾을 수 없습니다: {path}")
+            raise FileNotFoundError(tr("parse.file_not_found", path=path))
         if not path.is_file():
-            raise EmlParseError("선택한 경로가 파일이 아닙니다.")
+            raise EmlParseError(tr("parse.not_file"))
 
         try:
             raw_bytes = path.read_bytes()
         except OSError as exc:
-            raise EmlParseError(f"EML 파일을 읽을 수 없습니다: {path}") from exc
+            raise EmlParseError(tr("parse.cannot_read", path=path)) from exc
 
         try:
             return BytesParser(policy=policy.default).parsebytes(raw_bytes)
         except Exception as exc:
-            raise EmlParseError("EML 파일 내용을 해석할 수 없습니다.") from exc
+            raise EmlParseError(tr("parse.cannot_parse")) from exc
 
     def _iter_leaf_parts(self, message: EmailMessage | Message):
         if message.is_multipart():

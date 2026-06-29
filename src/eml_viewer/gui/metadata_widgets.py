@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLineEdit, QPushButton, QWidget
 
 
@@ -14,8 +15,10 @@ class CopyableLineEdit(QWidget):
         self._line_edit = QLineEdit(self)
         self._line_edit.setReadOnly(True)
 
-        self._copy_button = QPushButton("Copy", self)
-        self._copy_button.setFixedWidth(54)
+        self._copy_button = QPushButton(self)
+        self._copy_button.setObjectName("copyButton")
+        self._copy_button.setIcon(_copy_icon())
+        self._copy_button.setFixedSize(30, 28)
         self._copy_button.setToolTip(copy_tooltip)
         self._copy_button.setEnabled(False)
         self._copy_button.clicked.connect(self._emit_copy_requested)
@@ -30,6 +33,9 @@ class CopyableLineEdit(QWidget):
         self._line_edit.setText(text)
         self._copy_button.setEnabled(bool(text.strip()))
 
+    def set_copy_tooltip(self, tooltip: str) -> None:
+        self._copy_button.setToolTip(tooltip)
+
     def text(self) -> str:
         return self._line_edit.text()
 
@@ -40,3 +46,17 @@ class CopyableLineEdit(QWidget):
         text = self.text()
         if text.strip():
             self.copy_requested.emit(text)
+
+
+def _copy_icon() -> QIcon:
+    pixmap = QPixmap(18, 18)
+    pixmap.fill(QColor(0, 0, 0, 0))
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    pen = QPen(QColor("#9aa0a6"))
+    pen.setWidth(1)
+    painter.setPen(pen)
+    painter.drawRoundedRect(3, 6, 9, 9, 2, 2)
+    painter.drawRoundedRect(6, 3, 9, 9, 2, 2)
+    painter.end()
+    return QIcon(pixmap)

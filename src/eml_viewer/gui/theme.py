@@ -40,6 +40,28 @@ def _dark_style_sheet() -> str:
         background: #202225;
         color: #eeeeee;
     }
+    QWidget#updateBanner {
+        background: #25364a;
+        color: #f5f7fb;
+        border: 1px solid #3f6ea5;
+    }
+    QTabWidget::pane {
+        border: 1px solid #4b4f58;
+    }
+    QTabBar::tab {
+        background: #2b2f34;
+        color: #eeeeee;
+        border: 1px solid #4b4f58;
+        padding: 6px 12px;
+    }
+    QTabBar::tab:selected {
+        background: #181a1d;
+        color: #ffffff;
+        border-bottom-color: #181a1d;
+    }
+    QTabBar::tab:!selected {
+        color: #c5cbd3;
+    }
     QGroupBox {
         border: 1px solid #4b4f58;
         margin-top: 10px;
@@ -61,9 +83,22 @@ def _dark_style_sheet() -> str:
         border: 1px solid #5a606a;
         padding: 5px 10px;
     }
+    QPushButton#copyButton {
+        padding: 2px;
+    }
     QPushButton:disabled {
         color: #858b94;
         border-color: #3d4148;
+    }
+    QTableWidget::indicator {
+        width: 16px;
+        height: 16px;
+        border: 1px solid #9aa0a6;
+        background: #202225;
+    }
+    QTableWidget::indicator:checked {
+        background: #2a82da;
+        border: 1px solid #9cc8f5;
     }
     QLabel#plainNotice {
         color: #f0c36a;

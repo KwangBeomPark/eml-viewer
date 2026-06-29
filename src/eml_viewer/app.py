@@ -6,6 +6,7 @@ import traceback
 from pathlib import Path
 
 from eml_viewer import __version__
+from eml_viewer.gui.i18n import tr
 
 
 def _show_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
@@ -29,10 +30,8 @@ def _show_unhandled_exception(exc_type, exc_value, exc_traceback) -> None:
         details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
         QMessageBox.critical(
             None,
-            "예상하지 못한 오류",
-            "프로그램에서 예상하지 못한 오류가 발생했습니다.\n\n"
-            "가능하면 작업을 다시 시도해 주세요.\n\n"
-            f"상세 정보:\n{details}",
+            tr("app.unhandled_error.title"),
+            tr("app.unhandled_error.body", details=details),
         )
     except Exception:
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
@@ -65,11 +64,7 @@ def main(argv: list[str] | None = None) -> int:
         from PySide6.QtGui import QIcon
         from PySide6.QtWidgets import QApplication
     except ModuleNotFoundError:
-        print(
-            "PySide6가 설치되어 있지 않습니다. "
-            "'python -m pip install -e .' 명령으로 필요한 패키지를 설치해 주세요.",
-            file=sys.stderr,
-        )
+        print(tr("app.pyside_missing"), file=sys.stderr)
         return 1
 
     from eml_viewer.gui.main_window import MainWindow
@@ -78,6 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     from eml_viewer.services.attachment_service import AttachmentService
     from eml_viewer.services.eml_parser import EmlParser
     from eml_viewer.services.file_operation_service import FileOperationService
+    from eml_viewer.services.forward_service import ForwardService
     from eml_viewer.services.settings_service import SettingsService
     from eml_viewer.services.update_service import UpdateService
 
@@ -101,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         attachment_service=AttachmentService(parser, file_operation_service),
         settings_service=settings_service,
         file_operation_service=file_operation_service,
+        forward_service=ForwardService(),
         update_service=UpdateService(),
     )
     if not app.windowIcon().isNull():

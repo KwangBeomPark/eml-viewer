@@ -31,8 +31,11 @@ eml-viewer/
 │       │   ├── attachment_widgets.py # 첨부파일 요약/접힘/펼침/저장 UI
 │       │   ├── settings_dialog.py   # 언어/테마 설정 대화상자
 │       │   ├── theme.py             # 라이트/다크/시스템 테마 적용
-│       │   ├── i18n.py              # GUI 번역 키 관리
+│       │   ├── i18n.py              # eml_viewer.i18n 패키지 랩퍼 (호환성 유지용)
 │       │   └── dialogs.py          # 공통 알림/선택 대화상자
+│       ├── i18n/                    # 다국어(i18n) 패키지
+│       │   ├── locales/             # JSON 번역 파일 (ko.json, en.json)
+│       │   └── translator.py        # 다국어 번역 및 포맷팅 처리 모듈
 │       └── services/               # 비즈니스 로직 레이어
 │           ├── eml_parser.py       # EML 파일 파서 서비스
 │           ├── settings_service.py  # 창 크기 및 기본 설정 서비스
@@ -61,6 +64,15 @@ eml-viewer/
 - **타임아웃 분리**: `UpdateService`는 API 확인용 타임아웃(`timeout_seconds=10`)과 대용량 파일 다운로드용 타임아웃(`download_timeout_seconds=300`)을 분리하여 관리합니다.
 
 ## 5. 변경 이력
+### 2026-06-29
+- **다국어(i18n) 모듈 리팩토링 및 JSON locales 관리**:
+  - 번역 데이터를 기존 Python 하드코딩 딕셔너리(`gui/i18n.py`)에서 독립된 JSON 파일(`i18n/locales/ko.json`, `i18n/locales/en.json`)로 이전하여 확장성 개선.
+  - 신규 `eml_viewer.i18n` 패키지를 정의하고, `translator.py`에서 언어 설정, fallback 처리, 포맷팅 예외 대응을 전담하도록 구현.
+  - 기존 코드의 호환성을 보장하기 위해 `gui/i18n.py`를 thin wrapper로 리팩토링.
+  - 빌드 패키징 정보(`pyproject.toml`, `eml_viewer.spec`)를 업데이트하여 JSON 리소스가 정상적으로 동봉되도록 반영.
+  - `tests/test_i18n.py`에 포괄적인 단위 테스트(7개 케이스)를 구축하여 번역 기능 및 로딩 일관성 검증 완료.
+  - **버전 업데이트 (0.1.3 -> 0.1.4)**: `__init__.py`, `pyproject.toml`, `eml_viewer.iss` 및 관련 테스트 mock의 버전을 `0.1.4`로 일괄 갱신.
+
 ### 2026-06-26
 - **HTML 본문/첨부/설정 UX 개선 2차 업데이트**:
   - `text/plain`이 없는 HTML-only 메일에서 표/중첩 표의 텍스트를 Plain Text 탭에 자동 생성해 표시.
