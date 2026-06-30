@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 import threading
 import urllib.parse
 import urllib.request
+from html.parser import HTMLParser
 
 
 SUPPORTED_TRANSLATION_TARGETS: dict[str, str] = {
@@ -85,6 +87,138 @@ class TranslationChunker:
         return len(urllib.parse.urlencode({"q": text})) <= self.max_encoded_chars
 
 
+class _VisibleHtmlTextCollector(HTMLParser):
+    _skip_tags = {"script", "style", "head", "title"}
+    _void_tags = {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.segments: list[str] = []
+        self._skip_stack: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        tag = tag.lower()
+        if self._skip_stack:
+            if tag not in self._void_tags:
+                self._skip_stack.append(tag)
+            return
+        if tag in self._skip_tags or self._is_hidden(attrs):
+            if tag not in self._void_tags:
+                self._skip_stack.append(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._skip_stack:
+            self._skip_stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_stack:
+            return
+        core = _split_outer_whitespace(data)[1]
+        if core:
+            self.segments.append(core)
+
+    def _is_hidden(self, attrs) -> bool:
+        attr_map = {str(name).lower(): value or "" for name, value in attrs}
+        style = attr_map.get("style", "").replace(" ", "").lower()
+        return "hidden" in attr_map or "display:none" in style or "visibility:hidden" in style
+
+
+class _VisibleHtmlTextRewriter(HTMLParser):
+    _skip_tags = _VisibleHtmlTextCollector._skip_tags
+    _void_tags = _VisibleHtmlTextCollector._void_tags
+
+    def __init__(self, translations: list[str]) -> None:
+        super().__init__(convert_charrefs=True)
+        self._translations = translations
+        self._translation_index = 0
+        self._skip_stack: list[str] = []
+        self._parts: list[str] = []
+
+    def rewritten_html(self) -> str:
+        return "".join(self._parts)
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        raw = self.get_starttag_text()
+        self._parts.append(raw if raw is not None else self._format_starttag(tag, attrs))
+
+        tag = tag.lower()
+        if self._skip_stack:
+            if tag not in self._void_tags:
+                self._skip_stack.append(tag)
+            return
+        if tag in self._skip_tags or self._is_hidden(attrs):
+            if tag not in self._void_tags:
+                self._skip_stack.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        raw = self.get_starttag_text()
+        self._parts.append(raw if raw is not None else self._format_starttag(tag, attrs, closed=True))
+
+    def handle_endtag(self, tag: str) -> None:
+        self._parts.append(f"</{tag}>")
+        if self._skip_stack:
+            self._skip_stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_stack:
+            self._parts.append(data)
+            return
+
+        leading, core, trailing = _split_outer_whitespace(data)
+        if not core:
+            self._parts.append(data)
+            return
+
+        translated = self._translations[self._translation_index]
+        self._translation_index += 1
+        self._parts.append(f"{leading}{html.escape(translated, quote=False)}{trailing}")
+
+    def handle_comment(self, data: str) -> None:
+        self._parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self._parts.append(f"<!{decl}>")
+
+    def handle_pi(self, data: str) -> None:
+        self._parts.append(f"<?{data}>")
+
+    def unknown_decl(self, data: str) -> None:
+        self._parts.append(f"<![{data}]>")
+
+    def _is_hidden(self, attrs) -> bool:
+        attr_map = {str(name).lower(): value or "" for name, value in attrs}
+        style = attr_map.get("style", "").replace(" ", "").lower()
+        return "hidden" in attr_map or "display:none" in style or "visibility:hidden" in style
+
+    def _format_starttag(self, tag: str, attrs, closed: bool = False) -> str:
+        attr_text = "".join(
+            f' {name}="{html.escape(value or "", quote=True)}"' for name, value in attrs
+        )
+        suffix = " /" if closed else ""
+        return f"<{tag}{attr_text}{suffix}>"
+
+
+def _split_outer_whitespace(text: str) -> tuple[str, str, str]:
+    match = re.match(r"^(\s*)(.*?)(\s*)$", text, flags=re.DOTALL)
+    if match is None:
+        return "", text, ""
+    return match.group(1), match.group(2).strip(), match.group(3)
+
+
 class TranslationService:
     _endpoint = "https://translate.googleapis.com/translate_a/single"
 
@@ -122,6 +256,40 @@ class TranslationService:
             if progress_callback is not None:
                 progress_callback(index, total)
         return "\n\n".join(translated_chunks)
+
+    def translate_html_text(
+        self,
+        html_body: str,
+        target_language: str,
+        progress_callback=None,
+        cancel_event: threading.Event | None = None,
+    ) -> str:
+        collector = _VisibleHtmlTextCollector()
+        try:
+            collector.feed(html_body)
+            collector.close()
+        except Exception as exc:
+            raise TranslationError(f"HTML text extraction failed: {exc}") from exc
+
+        if not collector.segments:
+            return html_body
+
+        translated_segments: list[str] = []
+        total = len(collector.segments)
+        for index, segment in enumerate(collector.segments, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                raise TranslationCanceled()
+            translated_segments.append(self.translate_text(segment, target_language, cancel_event=cancel_event))
+            if progress_callback is not None:
+                progress_callback(index, total)
+
+        rewriter = _VisibleHtmlTextRewriter(translated_segments)
+        try:
+            rewriter.feed(html_body)
+            rewriter.close()
+        except Exception as exc:
+            raise TranslationError(f"HTML text rewrite failed: {exc}") from exc
+        return rewriter.rewritten_html()
 
     def _translate_chunk(self, chunk: str, target_language: str) -> str:
         params = urllib.parse.urlencode(

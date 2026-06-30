@@ -109,7 +109,7 @@ else:
 class MessageBodyWidget(QWidget):
     """Displays the plain text and HTML bodies of an email."""
 
-    translate_requested = Signal(str, str)
+    translate_requested = Signal(str, str, str)
 
     _resource_attr_pattern = re.compile(
         r"(?P<prefix>\b(?:src|background)\s*=\s*)(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
@@ -134,16 +134,21 @@ class MessageBodyWidget(QWidget):
         super().__init__(parent)
         self._inline_temp_dir: tempfile.TemporaryDirectory[str] | None = None
         self._current_email: ParsedEmail | None = None
+        self._current_prepared_html = ""
+        self._last_translation_result = ""
+        self._last_translation_format = "text"
         self._base_point_size = self.font().pointSizeF() or 10.0
         self._zoom_percent = 100
         self._remote_images_allowed = False
+        self._remote_content_interceptors: list[RemoteContentInterceptor] = []
 
         self._tabs = QTabWidget(self)
         self._plain_browser = ZoomTextBrowser(self)
-        self._translation_browser = ZoomTextBrowser(self)
         self._html_container = QWidget(self)
         self._html_view = self._create_html_view()
         self._html_browser = self._html_view
+        self._translation_view = self._create_html_view()
+        self._translation_browser = self._translation_view
         self._remote_notice_label = QLabel(self)
         self._load_remote_images_button = QPushButton(self)
         self._zoom_out_button = QPushButton("-", self)
@@ -155,14 +160,17 @@ class MessageBodyWidget(QWidget):
         self._target_language_combo = QComboBox(self)
 
         self._plain_browser.setOpenExternalLinks(False)
-        self._translation_browser.setOpenExternalLinks(False)
         self._plain_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
-        self._translation_browser.zoom_delta_requested.connect(self._change_zoom_by_steps)
         if isinstance(self._html_view, ZoomTextBrowser):
             self._html_view.setOpenExternalLinks(False)
             self._html_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
         elif QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
             self._html_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
+        if isinstance(self._translation_view, ZoomTextBrowser):
+            self._translation_view.setOpenExternalLinks(False)
+            self._translation_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
+        elif QWebEngineView is not None and isinstance(self._translation_view, QWebEngineView):
+            self._translation_view.zoom_delta_requested.connect(self._change_zoom_by_steps)
 
         self._zoom_out_button.clicked.connect(lambda: self._change_zoom_by_steps(-1))
         self._zoom_in_button.clicked.connect(lambda: self._change_zoom_by_steps(1))
@@ -192,7 +200,7 @@ class MessageBodyWidget(QWidget):
 
         self._tabs.addTab(self._plain_browser, "")
         self._tabs.addTab(self._html_container, "")
-        self._tabs.addTab(self._translation_browser, "")
+        self._tabs.addTab(self._translation_view, "")
         self._tabs.currentChanged.connect(self._on_current_tab_changed)
         self._plain_notice_label.setVisible(False)
         self._plain_notice_label.setObjectName("plainNotice")
@@ -218,12 +226,13 @@ class MessageBodyWidget(QWidget):
 
     def clear(self) -> None:
         self._current_email = None
+        self._current_prepared_html = ""
         self._remote_images_allowed = False
         self._clear_inline_temp_dir()
         self._zoom_percent = 100
         self._apply_zoom_controls()
         self._plain_browser.setPlainText(tr("message.plain_placeholder"))
-        self._translation_browser.clear()
+        self._clear_translation_result()
         self._set_html_placeholder(tr("message.html_placeholder"))
         self._tabs.setCurrentIndex(0)
         self._update_tab_dependent_controls()
@@ -248,7 +257,7 @@ class MessageBodyWidget(QWidget):
     def set_email(self, email: ParsedEmail) -> None:
         self._current_email = email
         self._remote_images_allowed = False
-        self._translation_browser.clear()
+        self._clear_translation_result()
         self._render_email()
         self._update_translation_controls()
 
@@ -286,9 +295,11 @@ class MessageBodyWidget(QWidget):
         self._plain_browser.setPlainText(plain_text)
         if html_text:
             prepared_html = self._prepare_html(email, allow_remote_resources=self._remote_images_allowed)
+            self._current_prepared_html = prepared_html
             self._set_html_content(prepared_html)
             self._tabs.setCurrentIndex(1)
         else:
+            self._current_prepared_html = ""
             self._clear_inline_temp_dir()
             self._set_html_placeholder(tr("message.html_empty"))
             self._tabs.setCurrentIndex(0)
@@ -301,7 +312,10 @@ class MessageBodyWidget(QWidget):
 
         point_size = self._base_point_size * self._zoom_percent / 100
         self._plain_browser.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
-        self._translation_browser.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
+        if isinstance(self._translation_view, ZoomTextBrowser):
+            self._translation_view.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
+        elif QWebEngineView is not None and isinstance(self._translation_view, QWebEngineView):
+            self._translation_view.setZoomFactor(self._zoom_percent / 100)
         if isinstance(self._html_view, ZoomTextBrowser):
             self._html_view.setStyleSheet(f"QTextBrowser {{ font-size: {point_size:.1f}pt; }}")
         elif QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
@@ -337,7 +351,14 @@ class MessageBodyWidget(QWidget):
     def source_text_for_translation(self) -> str:
         if self._current_email is None:
             return ""
+        if self._current_email.html_body.strip() and self._current_prepared_html.strip():
+            return self._current_prepared_html.strip()
         return self._current_email.plain_body.strip()
+
+    def source_format_for_translation(self) -> str:
+        if self._current_email and self._current_email.html_body.strip() and self._current_prepared_html.strip():
+            return "html"
+        return "text"
 
     def selected_translation_language(self) -> str:
         return str(self._target_language_combo.currentData() or "ko")
@@ -346,15 +367,24 @@ class MessageBodyWidget(QWidget):
         self._translate_button.setEnabled(enabled and bool(self.source_text_for_translation()))
         self._target_language_combo.setEnabled(enabled)
 
-    def set_translation_result(self, text: str) -> None:
-        self._translation_browser.setPlainText(text)
-        self._tabs.setCurrentWidget(self._translation_browser)
+    def set_translation_result(self, text: str, source_format: str = "text") -> None:
+        self._last_translation_result = text
+        self._last_translation_format = source_format
+        if source_format == "html":
+            self._set_translation_content(text)
+        else:
+            self._set_translation_content(self._plain_text_html(text))
+        self._tabs.setCurrentWidget(self._translation_view)
         self._update_translation_controls()
 
     def _emit_translate_requested(self) -> None:
         source_text = self.source_text_for_translation()
         if source_text:
-            self.translate_requested.emit(source_text, self.selected_translation_language())
+            self.translate_requested.emit(
+                source_text,
+                self.selected_translation_language(),
+                self.source_format_for_translation(),
+            )
 
     def _update_translation_controls(self) -> None:
         self._translate_button.setEnabled(bool(self.source_text_for_translation()))
@@ -386,8 +416,9 @@ class MessageBodyWidget(QWidget):
 
         view = ZoomWebEngineView(self)
         profile = QWebEngineProfile(view)
-        self._remote_content_interceptor = RemoteContentInterceptor(view)
-        profile.setUrlRequestInterceptor(self._remote_content_interceptor)
+        interceptor = RemoteContentInterceptor(view)
+        self._remote_content_interceptors.append(interceptor)
+        profile.setUrlRequestInterceptor(interceptor)
         page = MailWebEnginePage(profile, view)
         settings = page.settings()
         settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, False)
@@ -397,23 +428,29 @@ class MessageBodyWidget(QWidget):
         return view
 
     def _set_html_content(self, html_body: str) -> None:
-        if isinstance(self._html_view, ZoomTextBrowser):
-            self._html_view.setHtml(self._zoomed_html(html_body))
+        self._set_web_content(self._html_view, html_body, self._html_base_url())
+
+    def _set_translation_content(self, html_body: str) -> None:
+        self._set_web_content(self._translation_view, html_body, self._html_base_url())
+
+    def _set_web_content(self, view: QWidget, html_body: str, base_url: QUrl) -> None:
+        if isinstance(view, ZoomTextBrowser):
+            view.setHtml(self._zoomed_html(html_body))
             return
 
-        if QWebEngineView is None or not isinstance(self._html_view, QWebEngineView):
+        if QWebEngineView is None or not isinstance(view, QWebEngineView):
             return
 
-        if hasattr(self, "_remote_content_interceptor"):
-            self._remote_content_interceptor.allow_remote_content = self._remote_images_allowed
+        for interceptor in self._remote_content_interceptors:
+            interceptor.allow_remote_content = self._remote_images_allowed
 
-        page = self._html_view.page()
+        page = view.page()
         page.settings().setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls,
             self._remote_images_allowed,
         )
-        self._html_view.setZoomFactor(self._zoom_percent / 100)
-        self._html_view.setHtml(html_body, self._html_base_url())
+        view.setZoomFactor(self._zoom_percent / 100)
+        view.setHtml(html_body, base_url)
 
     def _set_html_placeholder(self, message: str) -> None:
         if isinstance(self._html_view, ZoomTextBrowser):
@@ -422,6 +459,19 @@ class MessageBodyWidget(QWidget):
         if QWebEngineView is not None and isinstance(self._html_view, QWebEngineView):
             self._html_view.setZoomFactor(self._zoom_percent / 100)
             self._html_view.setHtml(f"<html><body><p>{html.escape(message)}</p></body></html>")
+
+    def _clear_translation_result(self) -> None:
+        self._last_translation_result = ""
+        self._last_translation_format = "text"
+        self._set_translation_content("")
+
+    def _plain_text_html(self, text: str) -> str:
+        escaped = html.escape(text)
+        return (
+            "<html><body>"
+            '<pre style="white-space: pre-wrap; font-family: inherit;">'
+            f"{escaped}</pre></body></html>"
+        )
 
     def _html_base_url(self) -> QUrl:
         if self._inline_temp_dir is not None:

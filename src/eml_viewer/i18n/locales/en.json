@@ -88,6 +88,7 @@
   "settings.language_applied": "Language setting applied.",
   "settings.ok": "OK",
   "settings.saved": "Settings saved.",
+  "settings.smtp_group": "Email sending",
   "settings.smtp_host": "SMTP server",
   "settings.smtp_port": "SMTP port",
   "settings.smtp_sender": "Sender email",

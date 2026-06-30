@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLineEdit, QSpinBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGroupBox,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from eml_viewer.gui.i18n import tr
 from eml_viewer.models.app_settings import AppSettings
@@ -32,12 +42,15 @@ class SettingsDialog(QDialog):
         self._smtp_port_spin.setRange(1, 65535)
         self._smtp_port_spin.setValue(settings.smtp_port)
 
-        form_layout = QFormLayout()
-        form_layout.addRow(tr("settings.language"), self._language_combo)
-        form_layout.addRow(tr("settings.theme"), self._theme_combo)
-        form_layout.addRow(tr("settings.smtp_host"), self._smtp_host_edit)
-        form_layout.addRow(tr("settings.smtp_sender"), self._smtp_sender_edit)
-        form_layout.addRow(tr("settings.smtp_port"), self._smtp_port_spin)
+        general_layout = QFormLayout()
+        general_layout.addRow(tr("settings.language"), self._language_combo)
+        general_layout.addRow(tr("settings.theme"), self._theme_combo)
+
+        smtp_group = QGroupBox(tr("settings.smtp_group"), self)
+        smtp_layout = QFormLayout(smtp_group)
+        smtp_layout.addRow(tr("settings.smtp_host"), self._smtp_host_edit)
+        smtp_layout.addRow(tr("settings.smtp_sender"), self._smtp_sender_edit)
+        smtp_layout.addRow(tr("settings.smtp_port"), self._smtp_port_spin)
 
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.button(QDialogButtonBox.StandardButton.Ok).setText(tr("settings.ok"))
@@ -46,7 +59,8 @@ class SettingsDialog(QDialog):
         button_box.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(form_layout)
+        layout.addLayout(general_layout)
+        layout.addWidget(smtp_group)
         layout.addWidget(button_box)
 
     @property

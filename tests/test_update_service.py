@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from eml_viewer.services.update_service import UpdateCheckError, UpdateService
+from eml_viewer.services.update_service import UpdateCheckError, UpdateCheckResult, UpdateService
 
 
 class FakeResponse:
@@ -34,6 +35,7 @@ class UpdateServiceTest(unittest.TestCase):
                 {
                     "name": "EmlViewerSetup-0.2.0.exe",
                     "browser_download_url": "https://example.com/EmlViewerSetup-0.2.0.exe",
+                    "size": 12345,
                 }
             ],
         }
@@ -44,6 +46,8 @@ class UpdateServiceTest(unittest.TestCase):
         self.assertTrue(result.update_available)
         self.assertEqual(result.latest_version, "0.2.0")
         self.assertEqual(result.download_url, "https://example.com/EmlViewerSetup-0.2.0.exe")
+        self.assertEqual(result.asset_name, "EmlViewerSetup-0.2.0.exe")
+        self.assertEqual(result.asset_size, 12345)
 
     def test_same_version_is_latest(self) -> None:
         payload = {
@@ -82,6 +86,26 @@ class UpdateServiceTest(unittest.TestCase):
 
         with self.assertRaises(UpdateCheckError):
             service.check_for_updates()
+
+    def test_cached_installer_is_valid_when_asset_size_matches(self) -> None:
+        service = UpdateService(current_version="0.1.0", opener=lambda request, timeout: FakeResponse({}))
+        update = UpdateCheckResult(
+            current_version="0.1.0",
+            latest_version="0.2.0",
+            release_url="https://example.com",
+            download_url="https://example.com/EmlViewerSetup-0.2.0.exe",
+            asset_name="EmlViewerSetup-0.2.0.exe",
+            asset_size=3,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cache_path = service.installer_cache_path(update, temp_dir)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_bytes(b"abc")
+
+            self.assertTrue(service.has_valid_cached_installer(update, temp_dir))
+
+            cache_path.write_bytes(b"abcd")
+            self.assertFalse(service.has_valid_cached_installer(update, temp_dir))
 
 
 if __name__ == "__main__":

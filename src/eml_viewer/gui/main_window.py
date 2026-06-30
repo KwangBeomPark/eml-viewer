@@ -90,15 +90,16 @@ class UpdateCheckThread(QThread):
 
 class TranslationThread(QThread):
     progress = Signal(int, int)
-    finished = Signal(str)
+    finished = Signal(str, str)
     failed = Signal(str)
     canceled = Signal()
 
-    def __init__(self, service: TranslationService, text: str, target_language: str) -> None:
+    def __init__(self, service: TranslationService, text: str, target_language: str, source_format: str) -> None:
         super().__init__()
         self._service = service
         self._text = text
         self._target_language = target_language
+        self._source_format = source_format
         import threading
         self._cancel_event = threading.Event()
 
@@ -107,19 +108,27 @@ class TranslationThread(QThread):
 
     def run(self) -> None:
         try:
-            translated = self._service.translate_text(
-                self._text,
-                self._target_language,
-                progress_callback=self._progress_callback,
-                cancel_event=self._cancel_event,
-            )
+            if self._source_format == "html":
+                translated = self._service.translate_html_text(
+                    self._text,
+                    self._target_language,
+                    progress_callback=self._progress_callback,
+                    cancel_event=self._cancel_event,
+                )
+            else:
+                translated = self._service.translate_text(
+                    self._text,
+                    self._target_language,
+                    progress_callback=self._progress_callback,
+                    cancel_event=self._cancel_event,
+                )
         except TranslationCanceled:
             self.canceled.emit()
             return
         except Exception as exc:
             self.failed.emit(str(exc))
             return
-        self.finished.emit(translated)
+        self.finished.emit(translated, self._source_format)
 
     def _progress_callback(self, done: int, total: int) -> None:
         self.progress.emit(done, total)
@@ -321,7 +330,7 @@ class MainWindow(QMainWindow):
             clipboard.setText(text)
             self.statusBar().showMessage(tr("status.copied"))
 
-    def _translate_body(self, text: str, target_language: str) -> None:
+    def _translate_body(self, text: str, target_language: str, source_format: str = "text") -> None:
         if self._translation_thread is not None and self._translation_thread.isRunning():
             return
         if not text.strip():
@@ -352,7 +361,7 @@ class MainWindow(QMainWindow):
         self._translation_progress_dialog.setAutoClose(False)
         self._translation_progress_dialog.setAutoReset(False)
 
-        self._translation_thread = TranslationThread(self._translation_service, text, target_language)
+        self._translation_thread = TranslationThread(self._translation_service, text, target_language, source_format)
         self._translation_thread.progress.connect(self._on_translation_progress)
         self._translation_thread.finished.connect(self._on_translation_finished)
         self._translation_thread.failed.connect(self._on_translation_failed)
@@ -372,11 +381,11 @@ class MainWindow(QMainWindow):
             tr("translation.progress.label", done=done, total=total)
         )
 
-    def _on_translation_finished(self, translated_text: str) -> None:
+    def _on_translation_finished(self, translated_text: str, source_format: str) -> None:
         if self._translation_progress_dialog is not None:
             self._translation_progress_dialog.close()
             self._translation_progress_dialog = None
-        self._body_widget.set_translation_result(translated_text)
+        self._body_widget.set_translation_result(translated_text, source_format)
         self._body_widget.set_translation_enabled(True)
         self.statusBar().showMessage(tr("translation.status.done"))
 
@@ -437,11 +446,15 @@ class MainWindow(QMainWindow):
         try:
             self._forward_service.forward_email(self._current_email, settings, recipient)
         except ForwardConfigError as exc:
-            dialogs.show_error(
-                self,
-                tr("forward.config_required.title"),
-                tr("forward.config_required.body", error=exc),
-            )
+            message_box = QMessageBox(self)
+            message_box.setIcon(QMessageBox.Icon.Warning)
+            message_box.setWindowTitle(tr("forward.config_required.title"))
+            message_box.setText(tr("forward.config_required.body", error=exc))
+            settings_button = message_box.addButton(tr("menu.settings"), QMessageBox.ButtonRole.AcceptRole)
+            message_box.addButton(tr("settings.cancel"), QMessageBox.ButtonRole.RejectRole)
+            message_box.exec()
+            if message_box.clickedButton() == settings_button:
+                self._open_settings()
             return
         except Exception as exc:
             self._show_error(tr("forward.error.title"), exc)
@@ -610,7 +623,7 @@ class MainWindow(QMainWindow):
         )
         if answer == QMessageBox.StandardButton.Yes and result.download_url:
             if result.download_url.lower().endswith(".exe"):
-                self._start_update_download(result.download_url)
+                self._start_update_download(result)
             else:
                 QDesktopServices.openUrl(QUrl(result.download_url))
                 self.statusBar().showMessage(tr("update.check.done"))
@@ -648,7 +661,7 @@ class MainWindow(QMainWindow):
         if result is None:
             return
         if result.download_url and result.download_url.lower().endswith(".exe"):
-            self._start_update_download(result.download_url)
+            self._start_update_download(result)
             return
         if result.download_url:
             QDesktopServices.openUrl(QUrl(result.download_url))
@@ -656,15 +669,14 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl(result.release_url))
         self.statusBar().showMessage(tr("update.opened_page"))
 
-    def _start_update_download(self, url: str) -> None:
-        import os
-        import tempfile
+    def _start_update_download(self, result: UpdateCheckResult) -> None:
+        if not result.download_url:
+            return
 
-        dest_dir = tempfile.gettempdir()
-        filename = url.split("/")[-1]
-        if not filename.endswith(".exe"):
-            filename = "EmlViewerSetup.exe"
-        dest_path = os.path.join(dest_dir, filename)
+        dest_path = str(self._update_service.installer_cache_path(result))
+        if self._update_service.has_valid_cached_installer(result):
+            self._on_download_finished(dest_path)
+            return
 
         self._progress_dialog = QProgressDialog(
             tr("update.downloading_installer"),
@@ -679,7 +691,7 @@ class MainWindow(QMainWindow):
         self._progress_dialog.setAutoReset(False)
         self._progress_dialog.setValue(0)
 
-        self._download_thread = DownloadThread(self._update_service, url, dest_path)
+        self._download_thread = DownloadThread(self._update_service, result.download_url, dest_path)
         self._download_thread.progress.connect(self._on_download_progress)
         self._download_thread.finished.connect(self._on_download_finished)
         self._download_thread.failed.connect(self._on_download_failed)

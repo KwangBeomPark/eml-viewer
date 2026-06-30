@@ -5,6 +5,7 @@ import sys
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -142,6 +143,30 @@ class TranslationServiceTest(unittest.TestCase):
         with self.assertRaises(TranslationCanceled):
             service.translate_text(("a" * 80) + "\n\n" + ("b" * 80), "ko", cancel_event=cancel_event)
         self.assertEqual(calls, 1)
+
+    def test_translate_html_text_preserves_images_and_skips_script_text(self) -> None:
+        requests: list[str] = []
+
+        def fake_opener(request, timeout):
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            source = query["q"][0]
+            requests.append(source)
+            return FakeResponse([[[f"{source} translated", source]]])
+
+        service = TranslationService(opener=fake_opener)
+        html = (
+            '<html><head><title>Do not translate</title></head>'
+            '<body><p>Hello</p><img src="file:///logo.png">'
+            '<script>var label = "Skip";</script></body></html>'
+        )
+
+        translated = service.translate_html_text(html, "ko")
+
+        self.assertEqual(requests, ["Hello"])
+        self.assertIn("<p>Hello translated</p>", translated)
+        self.assertIn('<img src="file:///logo.png">', translated)
+        self.assertIn("Do not translate", translated)
+        self.assertIn('var label = "Skip";', translated)
 
 
 if __name__ == "__main__":

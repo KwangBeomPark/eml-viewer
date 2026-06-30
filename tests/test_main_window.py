@@ -34,10 +34,18 @@ class FakeUpdateService:
 class FakeTranslationService:
     def __init__(self, result: str | Exception) -> None:
         self._result = result
-        self.calls: list[tuple[str, str]] = []
+        self.calls: list[tuple[str, str, str]] = []
 
     def translate_text(self, text: str, target_language: str, progress_callback=None, cancel_event=None) -> str:
-        self.calls.append((text, target_language))
+        self.calls.append(("text", text, target_language))
+        if isinstance(self._result, Exception):
+            raise self._result
+        if progress_callback is not None:
+            progress_callback(1, 1)
+        return self._result
+
+    def translate_html_text(self, text: str, target_language: str, progress_callback=None, cancel_event=None) -> str:
+        self.calls.append(("html", text, target_language))
         if isinstance(self._result, Exception):
             raise self._result
         if progress_callback is not None:
@@ -160,10 +168,42 @@ class MainWindowTest(unittest.TestCase):
         window._translate_body("Body", "pl")
         self._wait_for_translation(window)
 
-        self.assertEqual(fake_translation.calls, [("Body", "pl")])
-        self.assertEqual(window._body_widget._translation_browser.toPlainText(), "Translated body")
-        self.assertEqual(window._body_widget._tabs.currentWidget(), window._body_widget._translation_browser)
+        self.assertEqual(fake_translation.calls, [("text", "Body", "pl")])
+        self.assertEqual(window._body_widget._last_translation_result, "Translated body")
+        self.assertEqual(window._body_widget._last_translation_format, "text")
+        self.assertEqual(window._body_widget._tabs.currentWidget(), window._body_widget._translation_view)
         self.assertTrue(window._body_widget._translate_button.isEnabled())
+
+    def test_html_translation_uses_prepared_html_source(self) -> None:
+        fake_translation = FakeTranslationService('<html><body><p>Translated</p><img src="file:///logo.png"></body></html>')
+        window = self._window(
+            UpdateCheckResult("0.1.4", "0.1.4", "https://example.com", None),
+            translation_service=fake_translation,
+        )
+        window._translation_privacy_confirmed = True
+        window._display_email(
+            ParsedEmail(
+                subject="Hello",
+                sender="sender@example.com",
+                recipients="receiver@example.com",
+                date="2026-06-27",
+                plain_body="Body",
+                html_body='<html><body><p>Body</p><img src="https://example.com/logo.png"></body></html>',
+                source_path=Path("sample.eml"),
+            )
+        )
+
+        window._translate_body(
+            window._body_widget.source_text_for_translation(),
+            "pl",
+            window._body_widget.source_format_for_translation(),
+        )
+        self._wait_for_translation(window)
+
+        self.assertEqual(fake_translation.calls[0][0], "html")
+        self.assertIn("data:image/gif", fake_translation.calls[0][1])
+        self.assertEqual(window._body_widget._last_translation_format, "html")
+        self.assertIn("Translated", window._body_widget._last_translation_result)
 
     def test_translation_failure_reenables_button_for_retry(self) -> None:
         fake_translation = FakeTranslationService(RuntimeError("network down"))
@@ -192,7 +232,7 @@ class MainWindowTest(unittest.TestCase):
         self._wait_for_translation(window)
 
         self.assertTrue(window._body_widget._translate_button.isEnabled())
-        self.assertEqual(fake_translation.calls, [("Body", "ko")])
+        self.assertEqual(fake_translation.calls, [("text", "Body", "ko")])
         self.assertTrue(errors)
         self.assertIn("try again", errors[0][1])
 

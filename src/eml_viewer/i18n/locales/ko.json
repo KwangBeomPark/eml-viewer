@@ -88,6 +88,7 @@
   "settings.language_applied": "언어 설정을 적용했습니다.",
   "settings.ok": "확인",
   "settings.saved": "설정을 저장했습니다.",
+  "settings.smtp_group": "이메일 보내기",
   "settings.smtp_host": "SMTP 서버",
   "settings.smtp_port": "SMTP 포트",
   "settings.smtp_sender": "보내는 사람 이메일",

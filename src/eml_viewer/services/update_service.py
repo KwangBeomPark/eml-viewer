@@ -30,6 +30,8 @@ class UpdateCheckResult:
     latest_version: str
     release_url: str
     download_url: str | None
+    asset_name: str = ""
+    asset_size: int = 0
 
     @property
     def update_available(self) -> bool:
@@ -81,16 +83,23 @@ class UpdateService:
             raise UpdateCheckError(tr("update.read_failed"))
 
         release_url = str(payload.get("html_url", ""))
-        download_url = self._installer_download_url(payload) or release_url or None
+        installer_asset = self._installer_download_asset(payload)
+        download_url = (installer_asset.get("download_url") if installer_asset else None) or release_url or None
 
         return UpdateCheckResult(
             current_version=self._current_version,
             latest_version=latest_version,
             release_url=release_url,
             download_url=download_url,
+            asset_name=str(installer_asset.get("name", "")) if installer_asset else "",
+            asset_size=int(installer_asset.get("size", 0)) if installer_asset else 0,
         )
 
     def _installer_download_url(self, payload: dict) -> str | None:
+        asset = self._installer_download_asset(payload)
+        return str(asset.get("download_url", "")) if asset else None
+
+    def _installer_download_asset(self, payload: dict) -> dict[str, str | int] | None:
         assets = payload.get("assets", [])
         if not isinstance(assets, list):
             return None
@@ -100,8 +109,25 @@ class UpdateService:
                 continue
             name = str(asset.get("name", ""))
             if name.startswith("EmlViewerSetup-") and name.lower().endswith(".exe"):
-                return str(asset.get("browser_download_url", "")) or None
+                return {
+                    "name": name,
+                    "download_url": str(asset.get("browser_download_url", "")),
+                    "size": _safe_int(asset.get("size", 0)),
+                }
         return None
+
+    def installer_cache_path(self, result: UpdateCheckResult, cache_dir: str | Path | None = None) -> Path:
+        filename = result.asset_name.strip() or _filename_from_url(result.download_url or "") or "EmlViewerSetup.exe"
+        root = Path(cache_dir) if cache_dir is not None else Path(tempfile.gettempdir()) / "EmlViewerUpdates"
+        return root / filename
+
+    def has_valid_cached_installer(self, result: UpdateCheckResult, cache_dir: str | Path | None = None) -> bool:
+        path = self.installer_cache_path(result, cache_dir)
+        if not path.exists() or not path.is_file():
+            return False
+        if result.asset_size <= 0:
+            return path.stat().st_size > 0
+        return path.stat().st_size == result.asset_size
 
     def download_installer(
         self,
@@ -174,3 +200,16 @@ def _version_tuple(version: str) -> tuple[int, ...]:
         digits = "".join(char for char in part if char.isdigit())
         parts.append(int(digits or 0))
     return tuple(parts)
+
+
+def _safe_int(value: object) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _filename_from_url(url: str) -> str:
+    if not url:
+        return ""
+    return url.split("/")[-1].split("?")[0]
