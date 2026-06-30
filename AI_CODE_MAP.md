@@ -64,6 +64,11 @@ eml-viewer/
 - **타임아웃 분리**: `UpdateService`는 API 확인용 타임아웃(`timeout_seconds=10`)과 대용량 파일 다운로드용 타임아웃(`download_timeout_seconds=300`)을 분리하여 관리합니다.
 
 ## 5. 변경 이력
+### 2026-06-30
+- **릴리즈 버전 업데이트 (0.1.4 -> 0.1.5)**:
+  - 애플리케이션 패키지 버전, 프로젝트 메타데이터, Inno Setup 기본 버전을 `0.1.5`로 일괄 갱신.
+  - Windows 인스톨러 릴리즈 산출물 생성을 위한 패치 버전 릴리즈 준비.
+
 ### 2026-06-29
 - **다국어(i18n) 모듈 리팩토링 및 JSON locales 관리**:
   - 번역 데이터를 기존 Python 하드코딩 딕셔너리(`gui/i18n.py`)에서 독립된 JSON 파일(`i18n/locales/ko.json`, `i18n/locales/en.json`)로 이전하여 확장성 개선.
