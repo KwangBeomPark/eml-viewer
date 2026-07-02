@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -11,7 +12,91 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from eml_viewer.services.eml_parser import EmlParser
 
 
+class FakeMsgProperties:
+    def __init__(self, content_id: str = "", hidden: bool = False) -> None:
+        self._content_id = content_id
+        self._hidden = hidden
+
+    def str_prop_value(self, _property_id) -> str:
+        return self._content_id
+
+    def int_prop_value(self, _property_id) -> int:
+        return int(self._hidden)
+
+
+class FakeMsgAttachment:
+    def __init__(
+        self,
+        filename: str,
+        payload: bytes,
+        mime_type: str = "application/octet-stream",
+        content_id: str = "",
+        hidden: bool = False,
+    ) -> None:
+        self.file_name = filename
+        self.file_bytes = payload
+        self.mime_type = mime_type
+        self.properties = FakeMsgProperties(content_id, hidden)
+
+
+class FakeMsg:
+    subject = "MSG subject"
+    sender = "sender@example.com"
+    message_headers = {"To": "receiver@example.com"}
+    sent_date = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
+    body = "Plain MSG body"
+    html_body = '<html><body><p>HTML MSG body</p><img src="cid:image001@example"></body></html>'
+    recipients = ()
+    attachments = (
+        FakeMsgAttachment(
+            "image001.png",
+            b"png",
+            "image/png",
+            content_id="image001@example",
+            hidden=True,
+        ),
+        FakeMsgAttachment("report.txt", b"hello", "text/plain"),
+    )
+
+
 class EmlParserTest(unittest.TestCase):
+    def test_parse_msg_email(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "message.msg"
+            path.write_bytes(b"fake msg")
+            original_load = self._patch_oxmsg_load(FakeMsg())
+
+            try:
+                parsed = EmlParser().parse_file(path)
+            finally:
+                self._restore_oxmsg_load(original_load)
+
+            self.assertEqual(parsed.subject, "MSG subject")
+            self.assertEqual(parsed.sender, "sender@example.com")
+            self.assertEqual(parsed.recipients, "receiver@example.com")
+            self.assertEqual(parsed.date, "2026-06-06 12:00:00 +0000")
+            self.assertEqual(parsed.plain_body, "Plain MSG body")
+            self.assertIn("HTML MSG body", parsed.html_body)
+            self.assertEqual(len(parsed.inline_resources), 1)
+            self.assertEqual(parsed.inline_resources[0].content_id, "image001@example")
+            self.assertEqual(len(parsed.attachments), 1)
+            self.assertEqual(parsed.attachments[0].filename, "report.txt")
+            self.assertEqual(parsed.attachments[0].size, 5)
+
+    def test_extract_msg_attachment_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "message.msg"
+            path.write_bytes(b"fake msg")
+            original_load = self._patch_oxmsg_load(FakeMsg())
+
+            try:
+                extracted = EmlParser().extract_attachment(path, 0)
+            finally:
+                self._restore_oxmsg_load(original_load)
+
+            self.assertEqual(extracted.info.filename, "report.txt")
+            self.assertEqual(extracted.payload, b"hello")
+
     def test_parse_plain_text_email(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "plain.eml"
@@ -269,6 +354,18 @@ class EmlParserTest(unittest.TestCase):
             parsed = EmlParser().parse_file(path)
 
             self.assertEqual(parsed.plain_body.strip(), "this is the longer real body")
+
+    def _patch_oxmsg_load(self, message: FakeMsg):
+        from oxmsg import Message as OxMsgMessage
+
+        original_load = OxMsgMessage.__dict__["load"]
+        OxMsgMessage.load = staticmethod(lambda _path: message)
+        return original_load
+
+    def _restore_oxmsg_load(self, original_load) -> None:
+        from oxmsg import Message as OxMsgMessage
+
+        OxMsgMessage.load = original_load
 
 
 if __name__ == "__main__":

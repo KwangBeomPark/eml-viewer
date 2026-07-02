@@ -122,7 +122,7 @@ class MainWindowTest(unittest.TestCase):
 
         self.assertEqual(window._file_menu.title(), "File")
         self.assertEqual(window._help_menu.title(), "Help")
-        self.assertEqual(window._open_button.text(), "Open EML file")
+        self.assertEqual(window._open_button.text(), "Open EML/MSG file")
         self.assertEqual(window._subject_label.text(), "Subject")
         self.assertEqual(window._sender_label.text(), "Sender")
         self.assertEqual(window._metadata_group.title(), "Email information")

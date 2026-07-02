@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md)
 
-EML Viewer is a Windows-first desktop app for opening `.eml` email files with a layout that behaves like a normal desktop window and renders HTML email bodies with Qt WebEngine.
+EML Viewer is a Windows-first desktop app for opening `.eml` and Outlook `.msg` email files with a layout that behaves like a normal desktop window and renders HTML email bodies with Qt WebEngine.
 
 ## Why This Exists
 
@@ -12,7 +12,7 @@ This is an open project. The documentation intentionally avoids company names, i
 
 ## Features
 
-- Open a single `.eml` file from the app or from a file association.
+- Open a single `.eml` or `.msg` file from the app or from a file association.
 - Display subject, sender, recipients, and date.
 - Show Plain Text and HTML body tabs.
 - Render HTML email with Qt WebEngine for better table, CSS, and inline image support.
@@ -28,8 +28,8 @@ This is an open project. The documentation intentionally avoids company names, i
 The Windows installer is intended for users who do not have Python installed.
 
 1. Download and run `EmlViewerSetup-<version>.exe`.
-2. Keep the file association option enabled if you want `.eml` files to open with EML Viewer.
-3. After installation, launch `EML Viewer` from the Start menu or double-click an `.eml` file.
+2. Keep the file association option enabled if you want `.eml` and `.msg` files to open with EML Viewer.
+3. After installation, launch `EML Viewer` from the Start menu or double-click an `.eml` or `.msg` file.
 
 ## Development Setup
 
