@@ -18,7 +18,7 @@ EML Viewer는 Windows에서 `.eml` 및 Outlook `.msg` 이메일 파일을 편하
 - Plain Text 본문과 HTML 본문 탭 제공
 - Qt WebEngine 기반 HTML 렌더링으로 표, CSS, 인라인 이미지 표시 개선
 - `cid:`, `Content-Location`, 상대 이미지 경로, CSS `url(...)`, `srcset` 이미지 참조 처리
-- 원격 이미지는 기본 차단하고, 사용자가 현재 메일에서만 표시할 수 있도록 제어
+- 외부 이미지는 기본 차단하고, 설정에서 자동 표시 여부를 선택할 수 있도록 제어
 - 첨부파일 목록 표시 및 저장
 - 마지막 창 크기와 위치 저장
 - GitHub Releases 기반 업데이트 확인

@@ -178,6 +178,9 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._retranslate_ui()
         self._restore_window_geometry()
+        self._body_widget.set_remote_images_auto_load(
+            self._settings_service.load_settings().auto_load_remote_images
+        )
 
         self._attachment_panel.save_requested.connect(self._save_attachments)
         self._subject_edit.copy_requested.connect(self._copy_to_clipboard)
@@ -418,6 +421,7 @@ class MainWindow(QMainWindow):
             settings,
             language=dialog.language,
             theme=dialog.theme,
+            auto_load_remote_images=dialog.auto_load_remote_images,
             smtp_host=dialog.smtp_host,
             smtp_sender=dialog.smtp_sender,
             smtp_port=dialog.smtp_port,
@@ -428,6 +432,7 @@ class MainWindow(QMainWindow):
 
         set_language(new_settings.language)
         apply_theme(QApplication.instance(), new_settings.theme)
+        self._body_widget.set_remote_images_auto_load(new_settings.auto_load_remote_images)
         if language_changed:
             self._retranslate_ui()
             dialogs.show_info(self, tr("settings.title"), tr("settings.language_applied"))

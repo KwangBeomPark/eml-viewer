@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -32,6 +33,9 @@ class SettingsDialog(QDialog):
         self._theme_combo.addItem(tr("theme.dark"), "dark")
         self._set_combo_value(self._theme_combo, settings.theme)
 
+        self._auto_load_remote_images_check = QCheckBox(tr("settings.auto_load_remote_images"), self)
+        self._auto_load_remote_images_check.setChecked(settings.auto_load_remote_images)
+
         self._smtp_host_edit = QLineEdit(settings.smtp_host, self)
         self._smtp_host_edit.setPlaceholderText("smtp.example.com")
 
@@ -45,6 +49,7 @@ class SettingsDialog(QDialog):
         general_layout = QFormLayout()
         general_layout.addRow(tr("settings.language"), self._language_combo)
         general_layout.addRow(tr("settings.theme"), self._theme_combo)
+        general_layout.addRow("", self._auto_load_remote_images_check)
 
         smtp_group = QGroupBox(tr("settings.smtp_group"), self)
         smtp_layout = QFormLayout(smtp_group)
@@ -70,6 +75,10 @@ class SettingsDialog(QDialog):
     @property
     def theme(self) -> str:
         return str(self._theme_combo.currentData())
+
+    @property
+    def auto_load_remote_images(self) -> bool:
+        return self._auto_load_remote_images_check.isChecked()
 
     @property
     def smtp_host(self) -> str:

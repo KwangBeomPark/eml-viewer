@@ -85,6 +85,7 @@
   "parse.msg_dependency_missing": "MSG support is not installed. Reinstall the app or run 'python -m pip install -e .'.",
   "parse.not_file": "The selected path is not a file.",
   "settings.cancel": "Cancel",
+  "settings.auto_load_remote_images": "Show external images automatically",
   "settings.language": "Language",
   "settings.language_applied": "Language setting applied.",
   "settings.ok": "OK",

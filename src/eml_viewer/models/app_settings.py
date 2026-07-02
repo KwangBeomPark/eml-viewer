@@ -13,6 +13,7 @@ class AppSettings:
     window_height: int = 760
     language: str = "ko"
     theme: str = "system"
+    auto_load_remote_images: bool = False
     smtp_host: str = ""
     smtp_sender: str = ""
     smtp_port: int = 25
@@ -34,12 +35,15 @@ class AppSettings:
             window_height=int(data.get("window_height", cls.window_height)),
             language=language,
             theme=theme,
+            auto_load_remote_images=cls._safe_bool(
+                data.get("auto_load_remote_images", cls.auto_load_remote_images)
+            ),
             smtp_host=str(data.get("smtp_host", cls.smtp_host)).strip(),
             smtp_sender=str(data.get("smtp_sender", cls.smtp_sender)).strip(),
             smtp_port=cls._safe_port(data.get("smtp_port", cls.smtp_port)),
         )
 
-    def to_dict(self) -> dict[str, int | str]:
+    def to_dict(self) -> dict[str, bool | int | str]:
         return {
             "window_x": self.window_x,
             "window_y": self.window_y,
@@ -47,6 +51,7 @@ class AppSettings:
             "window_height": self.window_height,
             "language": self.language,
             "theme": self.theme,
+            "auto_load_remote_images": self.auto_load_remote_images,
             "smtp_host": self.smtp_host,
             "smtp_sender": self.smtp_sender,
             "smtp_port": self.smtp_port,
@@ -59,3 +64,11 @@ class AppSettings:
         except (TypeError, ValueError):
             return AppSettings.smtp_port
         return port if 1 <= port <= 65535 else AppSettings.smtp_port
+
+    @staticmethod
+    def _safe_bool(value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)

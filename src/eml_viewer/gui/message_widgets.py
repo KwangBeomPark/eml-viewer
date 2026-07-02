@@ -139,6 +139,7 @@ class MessageBodyWidget(QWidget):
         self._last_translation_format = "text"
         self._base_point_size = self.font().pointSizeF() or 10.0
         self._zoom_percent = 100
+        self._remote_images_auto_load = False
         self._remote_images_allowed = False
         self._remote_content_interceptors: list[RemoteContentInterceptor] = []
 
@@ -227,7 +228,7 @@ class MessageBodyWidget(QWidget):
     def clear(self) -> None:
         self._current_email = None
         self._current_prepared_html = ""
-        self._remote_images_allowed = False
+        self._remote_images_allowed = self._remote_images_auto_load
         self._clear_inline_temp_dir()
         self._zoom_percent = 100
         self._apply_zoom_controls()
@@ -256,10 +257,18 @@ class MessageBodyWidget(QWidget):
 
     def set_email(self, email: ParsedEmail) -> None:
         self._current_email = email
-        self._remote_images_allowed = False
+        self._remote_images_allowed = self._remote_images_auto_load
         self._clear_translation_result()
         self._render_email()
         self._update_translation_controls()
+
+    def set_remote_images_auto_load(self, enabled: bool) -> None:
+        self._remote_images_auto_load = bool(enabled)
+        self._remote_images_allowed = self._remote_images_auto_load
+        if self._current_email is not None:
+            self._render_email()
+        else:
+            self._update_remote_controls()
 
     @property
     def zoom_percent(self) -> int:

@@ -17,7 +17,7 @@ This is an open project. The documentation intentionally avoids company names, i
 - Show Plain Text and HTML body tabs.
 - Render HTML email with Qt WebEngine for better table, CSS, and inline image support.
 - Resolve embedded `cid:` images, `Content-Location` images, relative image paths, CSS `url(...)`, and `srcset` references.
-- Block remote images by default and let the user enable them for the current message.
+- Block remote images by default, with a setting to show external images automatically.
 - Show and save attachments.
 - Preserve the last window size and position.
 - Check GitHub Releases for updates.
