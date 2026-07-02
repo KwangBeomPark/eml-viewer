@@ -3,7 +3,7 @@
 #define MyAppExeName "EmlViewer.exe"
 #define MyAppIcon "..\..\assets\app.ico"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.5"
+#define MyAppVersion "0.1.7"
 #endif
 
 [Setup]
