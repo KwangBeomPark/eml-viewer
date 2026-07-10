@@ -13,15 +13,28 @@ This is an open project. The documentation intentionally avoids company names, i
 ## Features
 
 - Open a single `.eml` or `.msg` file from the app or from a file association.
-- Display subject, sender, recipients, and date.
+- Display subject, sender, To, Cc, and date, with one-click copy feedback.
 - Show Plain Text and HTML body tabs.
 - Render HTML email with Qt WebEngine for better table, CSS, and inline image support.
 - Resolve embedded `cid:` images, `Content-Location` images, relative image paths, CSS `url(...)`, and `srcset` references.
 - Block remote images by default, with a setting to show external images automatically.
+- Translate the current message body between Korean, English, and Polish.
+- Forward mail as plain text and HTML while preserving embedded images and attaching the original email file.
+- Enter multiple forwarding recipients with commas and reuse recent recipient groups.
 - Show and save attachments.
-- Preserve the last window size and position.
+- Resize the window freely and preserve the last size and position.
 - Check GitHub Releases for updates.
 - Show user-friendly error dialogs instead of closing unexpectedly.
+
+## Quick Manual
+
+![EML Viewer quick manual](assets/manual-en.png)
+
+1. Open an `.eml` or `.msg` file from the app.
+2. Use the HTML tab for the closest rendering of the original message, including embedded images.
+3. Select Translate to create a translated reading view without changing the source file.
+4. Forward a message with one or more comma-separated recipients. Successful recipient groups appear in the next forwarding dialog.
+5. Resize the window as needed; its size and position are restored the next time you open the app.
 
 ## Install For General Use
 
