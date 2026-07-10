@@ -17,6 +17,7 @@ class AppSettings:
     smtp_host: str = ""
     smtp_sender: str = ""
     smtp_port: int = 25
+    recent_recipients: tuple[str, ...] = ()
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
@@ -41,9 +42,10 @@ class AppSettings:
             smtp_host=str(data.get("smtp_host", cls.smtp_host)).strip(),
             smtp_sender=str(data.get("smtp_sender", cls.smtp_sender)).strip(),
             smtp_port=cls._safe_port(data.get("smtp_port", cls.smtp_port)),
+            recent_recipients=cls._safe_recent_recipients(data.get("recent_recipients", ())),
         )
 
-    def to_dict(self) -> dict[str, bool | int | str]:
+    def to_dict(self) -> dict[str, bool | int | str | list[str]]:
         return {
             "window_x": self.window_x,
             "window_y": self.window_y,
@@ -55,6 +57,7 @@ class AppSettings:
             "smtp_host": self.smtp_host,
             "smtp_sender": self.smtp_sender,
             "smtp_port": self.smtp_port,
+            "recent_recipients": list(self.recent_recipients),
         }
 
     @staticmethod
@@ -72,3 +75,21 @@ class AppSettings:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    @staticmethod
+    def _safe_recent_recipients(value: object) -> tuple[str, ...]:
+        if not isinstance(value, (list, tuple)):
+            return ()
+
+        recipients: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            recipient = str(item).strip()
+            key = recipient.casefold()
+            if not recipient or key in seen:
+                continue
+            seen.add(key)
+            recipients.append(recipient)
+            if len(recipients) == 10:
+                break
+        return tuple(recipients)

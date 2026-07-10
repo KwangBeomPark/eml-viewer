@@ -198,6 +198,7 @@ class EmlParser:
             inline_resources=inline_resources,
             source_path=source_path,
             plain_body_generated=plain_body_generated,
+            cc=self._decode_header_value(message.get("Cc", "")),
         )
 
     def extract_attachment(self, path: str | Path, attachment_index: int) -> ExtractedAttachment:
@@ -294,6 +295,7 @@ class EmlParser:
             inline_resources=inline_resources,
             source_path=path,
             plain_body_generated=plain_body_generated,
+            cc=self._msg_header(msg, "cc"),
         )
 
     def _extract_msg_attachment(self, path: Path, attachment_index: int) -> ExtractedAttachment:

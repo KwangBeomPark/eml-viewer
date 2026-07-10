@@ -125,8 +125,36 @@ class MainWindowTest(unittest.TestCase):
         self.assertEqual(window._open_button.text(), "Open EML/MSG file")
         self.assertEqual(window._subject_label.text(), "Subject")
         self.assertEqual(window._sender_label.text(), "Sender")
+        self.assertEqual(window._to_label.text(), "To")
+        self.assertEqual(window._cc_label.text(), "Cc")
         self.assertEqual(window._metadata_group.title(), "Email information")
         self.assertEqual(window._body_widget._target_language_combo.currentData(), "en")
+
+    def test_subject_to_and_cc_copy_buttons_write_to_clipboard(self) -> None:
+        window = self._window(UpdateCheckResult("0.1.4", "0.1.4", "https://example.com", None))
+        window._display_email(
+            ParsedEmail(
+                subject="Hello",
+                sender="sender@example.com",
+                recipients="receiver@example.com",
+                date="2026-06-27",
+                plain_body="Body",
+                html_body="",
+                source_path=Path("sample.eml"),
+                cc="copy@example.com",
+            )
+        )
+
+        clipboard = QApplication.clipboard()
+
+        window._subject_edit._copy_button.click()
+        self.assertEqual(clipboard.text(), "Hello")
+
+        window._to_edit._copy_button.click()
+        self.assertEqual(clipboard.text(), "receiver@example.com")
+
+        window._cc_edit._copy_button.click()
+        self.assertEqual(clipboard.text(), "copy@example.com")
 
     def test_translate_button_enables_after_email_is_displayed(self) -> None:
         window = self._window(UpdateCheckResult("0.1.4", "0.1.4", "https://example.com", None))

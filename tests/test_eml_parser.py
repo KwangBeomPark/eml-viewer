@@ -42,7 +42,7 @@ class FakeMsgAttachment:
 class FakeMsg:
     subject = "MSG subject"
     sender = "sender@example.com"
-    message_headers = {"To": "receiver@example.com"}
+    message_headers = {"To": "receiver@example.com", "Cc": "copy@example.com"}
     sent_date = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
     body = "Plain MSG body"
     html_body = '<html><body><p>HTML MSG body</p><img src="cid:image001@example"></body></html>'
@@ -74,6 +74,7 @@ class EmlParserTest(unittest.TestCase):
             self.assertEqual(parsed.subject, "MSG subject")
             self.assertEqual(parsed.sender, "sender@example.com")
             self.assertEqual(parsed.recipients, "receiver@example.com")
+            self.assertEqual(parsed.cc, "copy@example.com")
             self.assertEqual(parsed.date, "2026-06-06 12:00:00 +0000")
             self.assertEqual(parsed.plain_body, "Plain MSG body")
             self.assertIn("HTML MSG body", parsed.html_body)
@@ -115,6 +116,26 @@ class EmlParserTest(unittest.TestCase):
             self.assertEqual(parsed.recipients, "receiver@example.com")
             self.assertIn("Plain 본문입니다.", parsed.plain_body)
             self.assertEqual(parsed.html_body, "")
+
+    def test_parse_cc_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "cc.eml"
+            path.write_bytes(
+                (
+                    "Subject: Cc test\n"
+                    "From: sender@example.com\n"
+                    "To: receiver@example.com\n"
+                    "Cc: copy@example.com\n"
+                    "Content-Type: text/plain; charset=\"utf-8\"\n"
+                    "\n"
+                    "Body\n"
+                ).encode("utf-8")
+            )
+
+            parsed = EmlParser().parse_file(path)
+
+            self.assertEqual(parsed.recipients, "receiver@example.com")
+            self.assertEqual(parsed.cc, "copy@example.com")
 
     def test_parse_html_email(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

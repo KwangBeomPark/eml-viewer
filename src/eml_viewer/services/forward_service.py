@@ -18,13 +18,13 @@ class ForwardSendError(Exception):
 
 
 class ForwardService:
-    """Sends the currently opened EML as an attached original message."""
+    """Sends the current message body and attaches the original email file."""
 
     def __init__(self, smtp_factory=smtplib.SMTP) -> None:
         self._smtp_factory = smtp_factory
 
-    def forward_email(self, email: ParsedEmail, settings: AppSettings, recipient: str) -> None:
-        recipient = recipient.strip()
+    def forward_email(self, email: ParsedEmail, settings: AppSettings, recipient: str) -> str:
+        recipient = self._normalize_recipients(recipient)
         self._validate_settings(settings, recipient)
 
         if email.source_path is None:
@@ -41,6 +41,7 @@ class ForwardService:
         message["To"] = recipient
         message["Subject"] = self._forward_subject(email.subject)
         message.set_content(self._plain_forward_body(email))
+        self._add_html_body(message, email)
         message.add_attachment(
             original_bytes,
             maintype="message",
@@ -53,6 +54,7 @@ class ForwardService:
                 smtp.send_message(message)
         except Exception as exc:
             raise ForwardSendError(tr("forward.error.send", error=exc)) from exc
+        return recipient
 
     def _validate_settings(self, settings: AppSettings, recipient: str) -> None:
         missing: list[str] = []
@@ -84,3 +86,43 @@ class ForwardService:
             f"Date: {email.date}\n\n"
             f"{body}\n"
         )
+
+    def _add_html_body(self, message: EmailMessage, email: ParsedEmail) -> None:
+        html_body = email.html_body.strip()
+        if not html_body:
+            return
+
+        message.add_alternative(html_body, subtype="html")
+        html_part = message.get_payload()[-1]
+        for index, resource in enumerate(email.inline_resources, start=1):
+            maintype, subtype = self._mime_parts(resource.content_type)
+            content_id = resource.content_id.strip() or f"inline-{index}"
+            html_part.add_related(
+                resource.payload,
+                maintype=maintype,
+                subtype=subtype,
+                cid=f"<{content_id}>",
+                filename=resource.filename or None,
+                disposition="inline",
+            )
+            if resource.content_location:
+                html_part.get_payload()[-1]["Content-Location"] = resource.content_location
+
+    def _mime_parts(self, content_type: str) -> tuple[str, str]:
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        maintype, separator, subtype = media_type.partition("/")
+        if not separator or not maintype or not subtype:
+            return "application", "octet-stream"
+        return maintype, subtype
+
+    def _normalize_recipients(self, recipients: str) -> str:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for recipient in recipients.split(","):
+            cleaned = recipient.strip()
+            key = cleaned.casefold()
+            if not cleaned or key in seen:
+                continue
+            seen.add(key)
+            normalized.append(cleaned)
+        return ", ".join(normalized)

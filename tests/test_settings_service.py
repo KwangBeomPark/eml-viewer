@@ -27,6 +27,7 @@ class SettingsServiceTest(unittest.TestCase):
                 smtp_host="smtp.example.com",
                 smtp_sender="sender@example.com",
                 smtp_port=2525,
+                recent_recipients=("one@example.com, two@example.com",),
             )
 
             service.save_settings(expected)
@@ -90,6 +91,15 @@ class SettingsServiceTest(unittest.TestCase):
         self.assertTrue(AppSettings.from_dict({"auto_load_remote_images": True}).auto_load_remote_images)
         self.assertTrue(AppSettings.from_dict({"auto_load_remote_images": "true"}).auto_load_remote_images)
         self.assertFalse(AppSettings.from_dict({"auto_load_remote_images": "false"}).auto_load_remote_images)
+
+    def test_save_recent_recipients_keeps_newest_ten_unique_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = SettingsService(Path(temp_dir) / "settings.json")
+            recipients = [f"person{index}@example.com" for index in range(12)]
+
+            service.save_recent_recipients([recipients[0], recipients[0].upper(), *recipients[1:]])
+
+            self.assertEqual(service.load_settings().recent_recipients, tuple(recipients[:10]))
 
 
 if __name__ == "__main__":
