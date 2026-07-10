@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if len(argv) > 1:
         initial_path = Path(argv[1])
-        if initial_path.suffix.lower() == ".eml":
+        if initial_path.suffix.lower() in {".eml", ".msg"}:
             window.load_email(initial_path)
 
     return app.exec()

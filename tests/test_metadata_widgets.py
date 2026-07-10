@@ -28,7 +28,7 @@ class CopyableLineEditTest(unittest.TestCase):
         self.assertTrue(widget._copy_button.isEnabled())
 
     def test_copy_button_emits_current_text(self) -> None:
-        widget = CopyableLineEdit("Copy field")
+        widget = CopyableLineEdit("Copy field", "Copied")
         copied: list[str] = []
         widget.copy_requested.connect(copied.append)
 
@@ -36,6 +36,18 @@ class CopyableLineEditTest(unittest.TestCase):
         widget._copy_button.click()
 
         self.assertEqual(copied, ["sender@example.com"])
+        self.assertEqual(widget._copy_button.toolTip(), "Copied")
+        self.assertTrue(widget._copy_restore_timer.isActive())
+
+        widget._restore_copy_button()
+
+        self.assertEqual(widget._copy_button.toolTip(), "Copy field")
+
+    def test_copy_button_precedes_the_read_only_field(self) -> None:
+        widget = CopyableLineEdit("Copy field")
+
+        self.assertIs(widget.layout().itemAt(0).widget(), widget._copy_button)
+        self.assertIs(widget.layout().itemAt(1).widget(), widget._line_edit)
 
 
 if __name__ == "__main__":

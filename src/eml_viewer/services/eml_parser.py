@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from email import policy
 from email.header import decode_header, make_header
 from email.message import EmailMessage, Message
@@ -136,8 +137,11 @@ class EmlParser:
     """EML 파일을 읽어서 화면과 저장 기능이 쓰기 쉬운 데이터로 바꿉니다."""
 
     def parse_file(self, path: str | Path) -> ParsedEmail:
-        eml_path = Path(path)
-        message = self._load_message(eml_path)
+        source_path = Path(path)
+        if source_path.suffix.lower() == ".msg":
+            return self._parse_msg_file(source_path)
+
+        message = self._load_message(source_path)
         parts = list(self._iter_leaf_parts(message))
 
         plain_candidates: list[str] = []
@@ -192,13 +196,17 @@ class EmlParser:
             html_body=html_body,
             attachments=attachments,
             inline_resources=inline_resources,
-            source_path=eml_path,
+            source_path=source_path,
             plain_body_generated=plain_body_generated,
+            cc=self._decode_header_value(message.get("Cc", "")),
         )
 
     def extract_attachment(self, path: str | Path, attachment_index: int) -> ExtractedAttachment:
-        eml_path = Path(path)
-        message = self._load_message(eml_path)
+        source_path = Path(path)
+        if source_path.suffix.lower() == ".msg":
+            return self._extract_msg_attachment(source_path, attachment_index)
+
+        message = self._load_message(source_path)
         parts = list(self._iter_leaf_parts(message))
         html_body = self._choose_best_body(
             [
@@ -224,10 +232,7 @@ class EmlParser:
         raise EmlParseError(tr("parse.attachment_not_found"))
 
     def _load_message(self, path: Path) -> EmailMessage | Message:
-        if not path.exists():
-            raise FileNotFoundError(tr("parse.file_not_found", path=path))
-        if not path.is_file():
-            raise EmlParseError(tr("parse.not_file"))
+        self._validate_source_path(path)
 
         try:
             raw_bytes = path.read_bytes()
@@ -238,6 +243,106 @@ class EmlParser:
             return BytesParser(policy=policy.default).parsebytes(raw_bytes)
         except Exception as exc:
             raise EmlParseError(tr("parse.cannot_parse")) from exc
+
+    def _parse_msg_file(self, path: Path) -> ParsedEmail:
+        msg = self._load_msg(path)
+        plain_body = _coerce_text(getattr(msg, "body", None))
+        html_body = _coerce_text(getattr(msg, "html_body", None))
+
+        plain_body_generated = False
+        if not plain_body and html_body:
+            plain_body = self._html_to_plain_text(html_body)
+            plain_body_generated = bool(plain_body)
+
+        attachments: list[AttachmentInfo] = []
+        inline_resources: list[InlineResource] = []
+        html_references = self._html_resource_references(html_body)
+        for attachment, payload in self._iter_msg_attachments(msg):
+            content_type = _coerce_text(getattr(attachment, "mime_type", None)) or "application/octet-stream"
+            content_id = self._msg_attachment_content_id(attachment)
+            filename = self._msg_attachment_filename(attachment, len(attachments) + 1)
+            keys = _resource_keys(content_id)
+            keys.update(_resource_keys(filename))
+
+            if self._is_msg_inline_resource(attachment, content_type, content_id, keys, html_references):
+                inline_resources.append(
+                    InlineResource(
+                        content_id=content_id or f"inline-{len(inline_resources) + 1}",
+                        filename=filename,
+                        content_type=content_type,
+                        payload=payload,
+                    )
+                )
+                continue
+
+            attachments.append(
+                AttachmentInfo(
+                    index=len(attachments),
+                    filename=filename,
+                    content_type=content_type,
+                    size=len(payload),
+                )
+            )
+
+        return ParsedEmail(
+            subject=_coerce_text(getattr(msg, "subject", None)),
+            sender=_coerce_text(getattr(msg, "sender", None)),
+            recipients=self._msg_recipients(msg),
+            date=self._msg_date(msg),
+            plain_body=plain_body,
+            html_body=html_body,
+            attachments=attachments,
+            inline_resources=inline_resources,
+            source_path=path,
+            plain_body_generated=plain_body_generated,
+            cc=self._msg_header(msg, "cc"),
+        )
+
+    def _extract_msg_attachment(self, path: Path, attachment_index: int) -> ExtractedAttachment:
+        msg = self._load_msg(path)
+        visible_index = 0
+
+        html_references = self._html_resource_references(_coerce_text(getattr(msg, "html_body", None)))
+        for attachment, payload in self._iter_msg_attachments(msg):
+            content_type = _coerce_text(getattr(attachment, "mime_type", None)) or "application/octet-stream"
+            content_id = self._msg_attachment_content_id(attachment)
+            filename = self._msg_attachment_filename(attachment, visible_index + 1)
+            keys = _resource_keys(content_id)
+            keys.update(_resource_keys(filename))
+            if self._is_msg_inline_resource(attachment, content_type, content_id, keys, html_references):
+                continue
+
+            if visible_index == attachment_index:
+                return ExtractedAttachment(
+                    info=AttachmentInfo(
+                        index=visible_index,
+                        filename=filename,
+                        content_type=content_type,
+                        size=len(payload),
+                    ),
+                    payload=payload,
+                )
+            visible_index += 1
+
+        raise EmlParseError(tr("parse.attachment_not_found"))
+
+    def _load_msg(self, path: Path):
+        self._validate_source_path(path)
+        try:
+            from oxmsg import Message as OxMsgMessage
+        except ModuleNotFoundError as exc:
+            raise EmlParseError(tr("parse.msg_dependency_missing")) from exc
+
+        try:
+            return OxMsgMessage.load(str(path))
+        except Exception as exc:
+            raise EmlParseError(tr("parse.cannot_parse")) from exc
+
+    def _validate_source_path(self, path: Path) -> None:
+        if not path.exists():
+            raise FileNotFoundError(tr("parse.file_not_found", path=path))
+        if not path.is_file():
+            raise EmlParseError(tr("parse.not_file"))
 
     def _iter_leaf_parts(self, message: EmailMessage | Message):
         if message.is_multipart():
@@ -325,6 +430,77 @@ class EmlParser:
             return decoded
         return parsed.strftime("%Y-%m-%d %H:%M:%S %z").strip()
 
+    def _msg_date(self, msg) -> str:
+        sent_date = getattr(msg, "sent_date", None)
+        if isinstance(sent_date, datetime):
+            return sent_date.strftime("%Y-%m-%d %H:%M:%S %z").strip()
+        return self._format_date(self._msg_header(msg, "date"))
+
+    def _msg_recipients(self, msg) -> str:
+        to_header = self._msg_header(msg, "to")
+        if to_header:
+            return to_header
+
+        recipients = []
+        for recipient in getattr(msg, "recipients", ()) or ():
+            name = _coerce_text(getattr(recipient, "name", None))
+            email = _coerce_text(getattr(recipient, "email_address", None))
+            if name and email:
+                recipients.append(f"{name} <{email}>")
+            elif email:
+                recipients.append(email)
+            elif name:
+                recipients.append(name)
+        return ", ".join(recipients)
+
+    def _msg_header(self, msg, name: str) -> str:
+        headers = getattr(msg, "message_headers", {}) or {}
+        for key, value in headers.items():
+            if str(key).lower() == name.lower():
+                return self._decode_header_value(_coerce_text(value))
+        return ""
+
+    def _iter_msg_attachments(self, msg):
+        for attachment in getattr(msg, "attachments", ()) or ():
+            payload = getattr(attachment, "file_bytes", None)
+            if payload is None:
+                continue
+            yield attachment, payload
+
+    def _msg_attachment_filename(self, attachment, fallback_index: int) -> str:
+        filename = _coerce_text(getattr(attachment, "file_name", None))
+        return filename or f"attachment-{fallback_index}"
+
+    def _msg_attachment_content_id(self, attachment) -> str:
+        try:
+            import oxmsg.domain.constants as oxmsg_constants
+
+            return _coerce_text(attachment.properties.str_prop_value(oxmsg_constants.PID_ATTACH_CONTENT_ID)).strip("<>")
+        except Exception:
+            return ""
+
+    def _msg_attachment_hidden(self, attachment) -> bool:
+        try:
+            import oxmsg.domain.constants as oxmsg_constants
+
+            return bool(attachment.properties.int_prop_value(oxmsg_constants.PID_ATTACHMENT_HIDDEN))
+        except Exception:
+            return False
+
+    def _is_msg_inline_resource(
+        self,
+        attachment,
+        content_type: str,
+        content_id: str,
+        keys: set[str],
+        html_references: set[str],
+    ) -> bool:
+        if not content_type.lower().startswith("image/"):
+            return False
+        if keys.intersection(html_references):
+            return True
+        return bool(content_id) and self._msg_attachment_hidden(attachment)
+
     def _choose_best_body(self, candidates: list[str]) -> str:
         non_empty = [candidate for candidate in candidates if candidate and candidate.strip()]
         if not non_empty:
@@ -407,3 +583,11 @@ def _srcset_values(value: str) -> list[str]:
             continue
         values.append(candidate.split()[0])
     return values
+
+
+def _coerce_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)

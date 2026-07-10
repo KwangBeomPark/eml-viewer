@@ -5,6 +5,7 @@ import os
 import sys
 from dataclasses import replace
 from pathlib import Path
+from collections.abc import Sequence
 
 from eml_viewer.models.app_settings import AppSettings
 
@@ -45,6 +46,11 @@ class SettingsService:
                 window_height=height,
             )
         )
+
+    def save_recent_recipients(self, recipients: Sequence[str]) -> None:
+        current = self.load_settings()
+        cleaned = AppSettings._safe_recent_recipients(list(recipients))
+        self.save_settings(replace(current, recent_recipients=cleaned))
 
     @staticmethod
     def default_settings_path() -> Path:

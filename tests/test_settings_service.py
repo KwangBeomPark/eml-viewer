@@ -23,9 +23,11 @@ class SettingsServiceTest(unittest.TestCase):
                 window_height=600,
                 language="en",
                 theme="dark",
+                auto_load_remote_images=True,
                 smtp_host="smtp.example.com",
                 smtp_sender="sender@example.com",
                 smtp_port=2525,
+                recent_recipients=("one@example.com, two@example.com",),
             )
 
             service.save_settings(expected)
@@ -50,6 +52,7 @@ class SettingsServiceTest(unittest.TestCase):
                 AppSettings(
                     language="en",
                     theme="dark",
+                    auto_load_remote_images=True,
                     smtp_host="smtp.example.com",
                     smtp_sender="sender@example.com",
                     smtp_port=2525,
@@ -61,6 +64,7 @@ class SettingsServiceTest(unittest.TestCase):
 
             self.assertEqual(actual.language, "en")
             self.assertEqual(actual.theme, "dark")
+            self.assertTrue(actual.auto_load_remote_images)
             self.assertEqual(actual.smtp_host, "smtp.example.com")
             self.assertEqual(actual.smtp_sender, "sender@example.com")
             self.assertEqual(actual.smtp_port, 2525)
@@ -77,6 +81,25 @@ class SettingsServiceTest(unittest.TestCase):
         actual = AppSettings.from_dict({"smtp_port": 999999})
 
         self.assertEqual(actual.smtp_port, 25)
+
+    def test_auto_load_remote_images_defaults_to_false(self) -> None:
+        actual = AppSettings.from_dict({})
+
+        self.assertFalse(actual.auto_load_remote_images)
+
+    def test_auto_load_remote_images_accepts_boolean_like_values(self) -> None:
+        self.assertTrue(AppSettings.from_dict({"auto_load_remote_images": True}).auto_load_remote_images)
+        self.assertTrue(AppSettings.from_dict({"auto_load_remote_images": "true"}).auto_load_remote_images)
+        self.assertFalse(AppSettings.from_dict({"auto_load_remote_images": "false"}).auto_load_remote_images)
+
+    def test_save_recent_recipients_keeps_newest_ten_unique_entries(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            service = SettingsService(Path(temp_dir) / "settings.json")
+            recipients = [f"person{index}@example.com" for index in range(12)]
+
+            service.save_recent_recipients([recipients[0], recipients[0].upper(), *recipients[1:]])
+
+            self.assertEqual(service.load_settings().recent_recipients, tuple(recipients[:10]))
 
 
 if __name__ == "__main__":

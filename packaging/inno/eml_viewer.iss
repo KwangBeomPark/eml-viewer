@@ -3,7 +3,7 @@
 #define MyAppExeName "EmlViewer.exe"
 #define MyAppIcon "..\..\assets\app.ico"
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.5"
+#define MyAppVersion "0.1.9"
 #endif
 
 [Setup]
@@ -32,7 +32,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "associateeml"; Description: ".eml 파일을 EML Viewer로 열기"; GroupDescription: "파일 연결:"; Flags: checkedonce
+Name: "associateeml"; Description: ".eml/.msg 파일을 EML Viewer로 열기"; GroupDescription: "파일 연결:"; Flags: checkedonce
 
 [Files]
 Source: "..\..\dist\EmlViewer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -46,6 +46,10 @@ Root: HKCU; Subkey: "Software\Classes\.eml"; ValueType: string; ValueName: ""; V
 Root: HKCU; Subkey: "Software\Classes\EMLViewer.eml"; ValueType: string; ValueName: ""; ValueData: "EML Email File"; Flags: uninsdeletekey; Tasks: associateeml
 Root: HKCU; Subkey: "Software\Classes\EMLViewer.eml\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: associateeml
 Root: HKCU; Subkey: "Software\Classes\EMLViewer.eml\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associateeml
+Root: HKCU; Subkey: "Software\Classes\.msg"; ValueType: string; ValueName: ""; ValueData: "EMLViewer.msg"; Flags: uninsdeletevalue; Tasks: associateeml
+Root: HKCU; Subkey: "Software\Classes\EMLViewer.msg"; ValueType: string; ValueName: ""; ValueData: "Outlook MSG Email File"; Flags: uninsdeletekey; Tasks: associateeml
+Root: HKCU; Subkey: "Software\Classes\EMLViewer.msg\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Tasks: associateeml
+Root: HKCU; Subkey: "Software\Classes\EMLViewer.msg\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associateeml
 Root: HKCU; Subkey: "Software\Classes\Applications\{#MyAppExeName}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: associateeml
 
 [Run]
@@ -62,6 +66,10 @@ begin
     begin
       RegWriteStringValue(HKCU, 'Software\EMLViewer', 'PreviousEmlAssociation', PreviousAssociation);
     end;
+    if RegQueryStringValue(HKCU, 'Software\Classes\.msg', '', PreviousAssociation) then
+    begin
+      RegWriteStringValue(HKCU, 'Software\EMLViewer', 'PreviousMsgAssociation', PreviousAssociation);
+    end;
   end;
 end;
 
@@ -74,7 +82,11 @@ begin
     if RegQueryStringValue(HKCU, 'Software\EMLViewer', 'PreviousEmlAssociation', PreviousAssociation) then
     begin
       RegWriteStringValue(HKCU, 'Software\Classes\.eml', '', PreviousAssociation);
-      RegDeleteKeyIncludingSubkeys(HKCU, 'Software\EMLViewer');
     end;
+    if RegQueryStringValue(HKCU, 'Software\EMLViewer', 'PreviousMsgAssociation', PreviousAssociation) then
+    begin
+      RegWriteStringValue(HKCU, 'Software\Classes\.msg', '', PreviousAssociation);
+    end;
+    RegDeleteKeyIncludingSubkeys(HKCU, 'Software\EMLViewer');
   end;
 end;

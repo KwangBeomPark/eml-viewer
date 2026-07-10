@@ -240,6 +240,25 @@ class MessageBodyWidgetTest(unittest.TestCase):
         widget._allow_remote_images()
         self.assertTrue(widget._load_remote_images_button.isHidden())
 
+    def test_remote_images_auto_load_setting_preserves_remote_urls(self) -> None:
+        widget = MessageBodyWidget()
+        widget.set_remote_images_auto_load(True)
+        email = ParsedEmail(
+            subject="",
+            sender="",
+            recipients="",
+            date="",
+            plain_body="plain",
+            html_body='<html><body><img src="https://example.com/logo.png"></body></html>',
+            inline_resources=[],
+        )
+
+        widget.set_email(email)
+
+        self.assertIn("https://example.com/logo.png", widget._current_prepared_html)
+        self.assertNotIn("data:image/gif", widget._current_prepared_html)
+        self.assertTrue(widget._load_remote_images_button.isHidden())
+
 
 if __name__ == "__main__":
     unittest.main()

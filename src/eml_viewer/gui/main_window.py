@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
@@ -164,10 +163,12 @@ class MainWindow(QMainWindow):
         self._translation_privacy_confirmed = False
         self._available_update_result: UpdateCheckResult | None = None
 
-        self._subject_edit = CopyableLineEdit(tr("copy.subject"), self)
-        self._sender_edit = CopyableLineEdit(tr("copy.sender"), self)
-        self._recipients_edit = CopyableLineEdit(tr("copy.recipients"), self)
-        self._date_edit = CopyableLineEdit(tr("copy.date"), self)
+        copied_tooltip = tr("copy.feedback")
+        self._subject_edit = CopyableLineEdit(tr("copy.subject"), copied_tooltip, self)
+        self._sender_edit = CopyableLineEdit(tr("copy.sender"), copied_tooltip, self)
+        self._to_edit = CopyableLineEdit(tr("copy.to"), copied_tooltip, self)
+        self._cc_edit = CopyableLineEdit(tr("copy.cc"), copied_tooltip, self)
+        self._date_edit = CopyableLineEdit(tr("copy.date"), copied_tooltip, self)
         self._current_file_label = QLabel(self)
         self._forward_button = QPushButton(self)
         self._body_widget = MessageBodyWidget(self)
@@ -178,11 +179,15 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._retranslate_ui()
         self._restore_window_geometry()
+        self._body_widget.set_remote_images_auto_load(
+            self._settings_service.load_settings().auto_load_remote_images
+        )
 
         self._attachment_panel.save_requested.connect(self._save_attachments)
         self._subject_edit.copy_requested.connect(self._copy_to_clipboard)
         self._sender_edit.copy_requested.connect(self._copy_to_clipboard)
-        self._recipients_edit.copy_requested.connect(self._copy_to_clipboard)
+        self._to_edit.copy_requested.connect(self._copy_to_clipboard)
+        self._cc_edit.copy_requested.connect(self._copy_to_clipboard)
         self._date_edit.copy_requested.connect(self._copy_to_clipboard)
         self._forward_button.clicked.connect(self._forward_current_email)
         self._body_widget.translate_requested.connect(self._translate_body)
@@ -245,11 +250,13 @@ class MainWindow(QMainWindow):
         metadata_layout = QFormLayout(self._metadata_group)
         self._subject_label = QLabel(self)
         self._sender_label = QLabel(self)
-        self._recipients_label = QLabel(self)
+        self._to_label = QLabel(self)
+        self._cc_label = QLabel(self)
         self._date_label = QLabel(self)
         metadata_layout.addRow(self._subject_label, self._subject_edit)
         metadata_layout.addRow(self._sender_label, self._sender_edit)
-        metadata_layout.addRow(self._recipients_label, self._recipients_edit)
+        metadata_layout.addRow(self._to_label, self._to_edit)
+        metadata_layout.addRow(self._cc_label, self._cc_edit)
         metadata_layout.addRow(self._date_label, self._date_edit)
 
         splitter = QSplitter(Qt.Orientation.Vertical, self)
@@ -283,12 +290,22 @@ class MainWindow(QMainWindow):
         self._metadata_group.setTitle(tr("label.metadata.group"))
         self._subject_label.setText(tr("label.metadata.subject"))
         self._sender_label.setText(tr("label.metadata.sender"))
-        self._recipients_label.setText(tr("label.metadata.recipients"))
+        self._to_label.setText(tr("label.metadata.to"))
+        self._cc_label.setText(tr("label.metadata.cc"))
         self._date_label.setText(tr("label.metadata.date"))
         self._subject_edit.set_copy_tooltip(tr("copy.subject"))
         self._sender_edit.set_copy_tooltip(tr("copy.sender"))
-        self._recipients_edit.set_copy_tooltip(tr("copy.recipients"))
+        self._to_edit.set_copy_tooltip(tr("copy.to"))
+        self._cc_edit.set_copy_tooltip(tr("copy.cc"))
         self._date_edit.set_copy_tooltip(tr("copy.date"))
+        for field in (
+            self._subject_edit,
+            self._sender_edit,
+            self._to_edit,
+            self._cc_edit,
+            self._date_edit,
+        ):
+            field.set_copied_tooltip(tr("copy.feedback"))
         self._body_widget.retranslate_ui()
         self._attachment_panel.retranslate_ui()
         if self._current_email is None:
@@ -317,7 +334,8 @@ class MainWindow(QMainWindow):
     def _display_email(self, email: ParsedEmail) -> None:
         self._subject_edit.setText(email.subject)
         self._sender_edit.setText(email.sender)
-        self._recipients_edit.setText(email.recipients)
+        self._to_edit.setText(email.recipients)
+        self._cc_edit.setText(email.cc)
         self._date_edit.setText(email.date)
         self._current_file_label.setText(str(email.source_path or ""))
         self._forward_button.setEnabled(email.source_path is not None)
@@ -418,6 +436,7 @@ class MainWindow(QMainWindow):
             settings,
             language=dialog.language,
             theme=dialog.theme,
+            auto_load_remote_images=dialog.auto_load_remote_images,
             smtp_host=dialog.smtp_host,
             smtp_sender=dialog.smtp_sender,
             smtp_port=dialog.smtp_port,
@@ -428,6 +447,7 @@ class MainWindow(QMainWindow):
 
         set_language(new_settings.language)
         apply_theme(QApplication.instance(), new_settings.theme)
+        self._body_widget.set_remote_images_auto_load(new_settings.auto_load_remote_images)
         if language_changed:
             self._retranslate_ui()
             dialogs.show_info(self, tr("settings.title"), tr("settings.language_applied"))
@@ -438,13 +458,17 @@ class MainWindow(QMainWindow):
             dialogs.show_error(self, tr("forward.error.title"), tr("forward.error.no_email"))
             return
 
-        recipient, accepted = QInputDialog.getText(self, tr("forward.title"), tr("forward.recipient_prompt"))
-        if not accepted:
+        settings = self._settings_service.load_settings()
+        selection = dialogs.request_forward_recipients(self, settings.recent_recipients)
+        if selection is None:
             return
 
-        settings = self._settings_service.load_settings()
         try:
-            self._forward_service.forward_email(self._current_email, settings, recipient)
+            recipient = self._forward_service.forward_email(
+                self._current_email,
+                settings,
+                selection.recipients,
+            )
         except ForwardConfigError as exc:
             message_box = QMessageBox(self)
             message_box.setIcon(QMessageBox.Icon.Warning)
@@ -460,10 +484,11 @@ class MainWindow(QMainWindow):
             self._show_error(tr("forward.error.title"), exc)
             return
 
+        self._settings_service.save_recent_recipients((recipient, *selection.recent_recipients))
         dialogs.show_info(
             self,
             tr("forward.success.title"),
-            tr("forward.completed", recipient=recipient.strip()),
+            tr("forward.completed", recipient=recipient),
         )
         self.statusBar().showMessage(tr("forward.completed.status"))
 
