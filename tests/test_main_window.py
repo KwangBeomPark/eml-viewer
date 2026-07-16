@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 from eml_viewer.gui import dialogs
 from eml_viewer.gui.i18n import set_language
 from eml_viewer.gui.main_window import MainWindow
+from eml_viewer.models.app_settings import AppSettings
 from eml_viewer.models.email_data import ParsedEmail
 from eml_viewer.services.attachment_service import AttachmentService
 from eml_viewer.services.eml_parser import EmlParser
@@ -68,12 +69,15 @@ class MainWindowTest(unittest.TestCase):
         self,
         update_result: UpdateCheckResult,
         translation_service: FakeTranslationService | None = None,
+        app_settings: AppSettings | None = None,
     ) -> MainWindow:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
         parser = EmlParser()
         file_operations = FileOperationService()
         settings = SettingsService(Path(temp_dir.name) / "settings.json")
+        if app_settings is not None:
+            settings.save_settings(app_settings)
         window = MainWindow(
             parser=parser,
             attachment_service=AttachmentService(parser, file_operations),
@@ -87,6 +91,39 @@ class MainWindowTest(unittest.TestCase):
             window._update_check_thread.wait(5000)
             QApplication.processEvents()
         return window
+
+    def test_offscreen_saved_geometry_is_centered_on_primary_screen(self) -> None:
+        window = self._window(
+            UpdateCheckResult("0.1.4", "0.1.4", "https://example.com", None),
+            app_settings=AppSettings(
+                window_x=10_000,
+                window_y=10_000,
+                window_width=800,
+                window_height=600,
+            ),
+        )
+
+        primary_screen = QApplication.primaryScreen()
+        self.assertIsNotNone(primary_screen)
+        available_geometry = primary_screen.availableGeometry()
+        geometry = window.geometry()
+
+        self.assertTrue(available_geometry.contains(geometry.center()))
+        self.assertLessEqual(geometry.width(), available_geometry.width())
+        self.assertLessEqual(geometry.height(), available_geometry.height())
+
+    def test_visible_saved_geometry_is_preserved(self) -> None:
+        window = self._window(
+            UpdateCheckResult("0.1.4", "0.1.4", "https://example.com", None),
+            app_settings=AppSettings(
+                window_x=50,
+                window_y=50,
+                window_width=500,
+                window_height=400,
+            ),
+        )
+
+        self.assertEqual(window.geometry().getRect(), (50, 50, 500, 400))
 
     def test_update_banner_shows_only_when_update_is_available(self) -> None:
         window = self._window(UpdateCheckResult("0.1.4", "0.1.5", "https://example.com", None))

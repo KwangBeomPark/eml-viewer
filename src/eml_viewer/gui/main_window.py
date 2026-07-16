@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, QThread, Signal
+from PySide6.QtCore import QRect, Qt, QUrl, QThread, Signal
 from PySide6.QtGui import QAction, QDesktopServices
 from PySide6.QtWidgets import (
     QFormLayout,
@@ -584,12 +584,44 @@ class MainWindow(QMainWindow):
 
     def _restore_window_geometry(self) -> None:
         settings = self._settings_service.load_settings()
-        self.setGeometry(
+        saved_geometry = QRect(
             settings.window_x,
             settings.window_y,
             settings.window_width,
             settings.window_height,
         )
+        screens = QApplication.screens()
+
+        if self._geometry_is_visible(saved_geometry, screens):
+            self.setGeometry(saved_geometry)
+            return
+
+        primary_screen = QApplication.primaryScreen()
+        if primary_screen is None:
+            self.setGeometry(saved_geometry)
+            return
+
+        available_geometry = primary_screen.availableGeometry()
+        width = min(max(saved_geometry.width(), 1), available_geometry.width())
+        height = min(max(saved_geometry.height(), 1), available_geometry.height())
+        self.setGeometry(
+            available_geometry.x() + (available_geometry.width() - width) // 2,
+            available_geometry.y() + (available_geometry.height() - height) // 2,
+            width,
+            height,
+        )
+
+    @staticmethod
+    def _geometry_is_visible(geometry: QRect, screens: list) -> bool:
+        minimum_visible_size = 100
+        for screen in screens:
+            visible_area = geometry.intersected(screen.availableGeometry())
+            if (
+                visible_area.width() >= minimum_visible_size
+                and visible_area.height() >= minimum_visible_size
+            ):
+                return True
+        return False
 
     def closeEvent(self, event) -> None:
         if self._update_check_thread is not None and self._update_check_thread.isRunning():
